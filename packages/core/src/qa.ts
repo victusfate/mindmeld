@@ -60,8 +60,12 @@ export function evidenceBlock(r: Retrieval, contents: Map<string, string>): stri
   return `<evidence>\n${parts.join('\n\n')}\n\nRecorded events (observed in sandboxed runs):\n${events.join('\n') || '(none)'}\n</evidence>`;
 }
 
-function sentences(text: string): string[] {
-  return text.split(/\n+|(?<=[.!?])\s+(?=[A-Z(["'`])/).map(s => s.trim()).filter(Boolean);
+/**
+ * Split into sentences. Citations directly after a full stop (`claim. [S:x] Next…`) belong to the sentence
+ * they follow, so a split never happens before a citation and may happen after a trailing citation group.
+ */
+export function sentences(text: string): string[] {
+  return text.split(/\n+|(?<=[.!?](?:\s*\[[SE]:[^\]\s]+\])*)\s+(?!\[[SE]:)(?=[A-Z(["'`*])/).map(s => s.trim()).filter(Boolean);
 }
 
 export function judgeAnswer(question: string, raw: string, ctx: CitationContext, model: string | null): Answer {

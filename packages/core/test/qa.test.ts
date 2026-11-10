@@ -75,3 +75,10 @@ test('usage is recorded per index, run and model call; unknown stays unknown', a
   const { formatUsage } = await import('../src/index.ts');
   assert.match(formatUsage(summary), /model scripted \(scripted-1\): 1×/);
 });
+
+test('citations placed after the full stop stay with the sentence they support', async () => {
+  const { sentences } = await import('../src/qa.ts');
+  assert.deepEqual(sentences('A calls b. [S:a#b] [E:run_1#0] **Then** c runs. [S:c#d] Done. Plain [S:x#y].'),
+    ['A calls b. [S:a#b] [E:run_1#0]', '**Then** c runs. [S:c#d]', 'Done.', 'Plain [S:x#y].']);
+  assert.deepEqual(sentences('One [S:a#b]. Two [S:c#d].\nThree.'), ['One [S:a#b].', 'Two [S:c#d].', 'Three.']);
+});
