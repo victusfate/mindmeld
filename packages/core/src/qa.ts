@@ -68,7 +68,30 @@ export function evidenceBlock(r: Retrieval, contents: Map<string, string>): stri
  * they follow, so a split never happens before a citation and may happen after a trailing citation group.
  */
 export function sentences(text: string): string[] {
-  return text.split(/\n+|(?<=[.!?](?:\s*\[[SE]:[^\]\s]+\])*)\s+(?!\[[SE]:)(?=[A-Z(["'`*])/).map(s => s.trim()).filter(Boolean);
+  return text.split(/\n+/).flatMap(splitLine).map(s => s.trim()).filter(Boolean);
+}
+
+const CITATION_AT = /^\[[SE]:[^\]\s]+\]/;
+const SENTENCE_START = /^[A-Z(["'`*]/;
+
+/** Linear scan (no backtracking regex): break after `.!?` plus any citations that follow it. */
+function splitLine(line: string): string[] {
+  const out: string[] = [];
+  let start = 0;
+  for (let i = 0; i < line.length; i++) {
+    if (!'.!?'.includes(line[i])) continue;
+    let j = i + 1;
+    for (;;) {
+      const gap = /^\s*/.exec(line.slice(j))![0].length;
+      const cite = CITATION_AT.exec(line.slice(j + gap));
+      if (!cite) break;
+      j += gap + cite[0].length;
+    }
+    const gap = /^\s+/.exec(line.slice(j))?.[0].length ?? 0;
+    if (gap && SENTENCE_START.test(line.slice(j + gap))) { out.push(line.slice(start, j)); start = j + gap; i = start - 1; }
+  }
+  out.push(line.slice(start));
+  return out;
 }
 
 export function judgeAnswer(question: string, raw: string, ctx: CitationContext, model: string | null): Answer {
