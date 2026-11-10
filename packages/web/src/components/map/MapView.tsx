@@ -1,7 +1,7 @@
 // Source-linked map: symbols laid out callers → callees. Static (possible) edges are dashed grey, observed
 // (recorded, non-stale) edges are solid accent; the legend says so and the filters never blur the two.
-import { useMemo, useState } from 'react';
-import { Background, Controls, MarkerType, ReactFlow, type Edge } from '@xyflow/react';
+import { useCallback, useMemo, useState } from 'react';
+import { Background, Controls, MarkerType, ReactFlow, type Edge, type NodeChange } from '@xyflow/react';
 import type { Entry, Graph } from '@mindmeld/client';
 import { mapEdges, type EdgeMode, type MapEdge } from '../../lib/edges.ts';
 import { fileSlots, layoutSymbols } from '../../lib/layout.ts';
@@ -24,6 +24,27 @@ function toFlowEdge(e: MapEdge): Edge {
     markerEnd: { type: MarkerType.ArrowClosed }, focusable: false, data: { provenance: e.provenance } };
 }
 
+type Size = { width: number; height: number };
+
+/**
+ * React Flow 12 hides a node until it has measured dimensions. Nodes are rebuilt on every render (replay steps,
+ * new runs), so the last measurement is kept here and handed back; otherwise a re-render without a resize could
+ * leave the whole map hidden (seen as an intermittent empty map right after a run).
+ */
+function useMeasured(): [Map<string, Size>, (changes: NodeChange[]) => void] {
+  const [sizes, setSizes] = useState<Map<string, Size>>(() => new Map());
+  const onNodesChange = useCallback((changes: NodeChange[]) => {
+    const measured = changes.filter(c => c.type === 'dimensions' && c.dimensions);
+    if (!measured.length) return;
+    setSizes(prev => {
+      const next = new Map(prev);
+      for (const c of measured) if (c.type === 'dimensions' && c.dimensions) next.set(c.id, c.dimensions);
+      return next;
+    });
+  }, []);
+  return [sizes, onNodesChange];
+}
+
 const matches = (q: string, name: string, id: string): boolean => !q || name.toLowerCase().includes(q) || id.toLowerCase().includes(q);
 
 export function MapView({ graph, entries, selected, current, path, onSelect }: Props) {
@@ -31,6 +52,7 @@ export function MapView({ graph, entries, selected, current, path, onSelect }: P
   const [file, setFile] = useState('');
   const [query, setQuery] = useState('');
   const q = query.trim().toLowerCase();
+  const [sizes, onNodesChange] = useMeasured();
   const files = useMemo(() => [...new Set(graph.symbols.map(s => s.span.file))].sort(), [graph]);
   const positions = useMemo(() => layoutSymbols(graph.symbols, [...graph.staticEdges.filter(e => e.kind === 'call'), ...graph.observedEdges]), [graph]);
   const slots = useMemo(() => fileSlots(graph.symbols, FILE_SLOTS), [graph]);
@@ -40,7 +62,7 @@ export function MapView({ graph, entries, selected, current, path, onSelect }: P
   const onPathNodes = useMemo(() => new Set([...path].flatMap(k => k.split('→'))), [path]);
 
   const nodes: SymbolNodeType[] = visibleSymbols.map(s => ({
-    id: s.id, type: 'symbol', position: positions.get(s.id) ?? { x: 0, y: 0 }, focusable: false, draggable: false,
+    id: s.id, type: 'symbol', position: positions.get(s.id) ?? { x: 0, y: 0 }, focusable: false, draggable: false, measured: sizes.get(s.id),
     data: { symbol: s, slot: slots.get(s.span.file) ?? 0, entry: entryIds.has(s.id), selected: s.id === selected, current: s.id === current,
       onPath: onPathNodes.has(s.id), dimmed: !matches(q, s.name, s.id), onSelect },
   }));
@@ -64,7 +86,7 @@ export function MapView({ graph, entries, selected, current, path, onSelect }: P
           onKeyDown={e => { if (e.key === 'Enter' && firstMatch) onSelect(firstMatch.id); }} />
       </div>
       <div className="map-canvas">
-        <ReactFlow key={graph.project.id} nodes={nodes} edges={edges} nodeTypes={NODE_TYPES} fitView minZoom={MIN_ZOOM}
+        <ReactFlow key={graph.project.id} nodes={nodes} edges={edges} onNodesChange={onNodesChange} nodeTypes={NODE_TYPES} fitView minZoom={MIN_ZOOM}
           nodesConnectable={false} edgesFocusable={false} elementsSelectable={false} proOptions={{ hideAttribution: true }}>
           <Background gap={GRID_GAP} size={1} />
           <Controls showInteractive={false} />
