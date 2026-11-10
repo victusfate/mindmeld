@@ -1,0 +1,25 @@
+# scaffold-linter: js
+name: Lint JS
+
+on:
+  pull_request:
+    paths:
+      - '**/*.js'
+      - '**/*.mjs'
+      - '**/*.cjs'
+      - '**/*.json'
+      - '**/*.yml'
+      - '**/*.md'
+
+jobs:
+  eslint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: 'npm'
+      - run: npm install --save-dev eslint @eslint/js globals prettier
+      - run: npx eslint . --max-warnings 0
+      - run: npx prettier . --check

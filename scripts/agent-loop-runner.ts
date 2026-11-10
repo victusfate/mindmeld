@@ -1,0 +1,69 @@
+// An independent Node process owns recurrence and holds the checkout lease.
+import { existsSync, rmSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { setTimeout as delay } from 'node:timers/promises';
+import { execute } from './agent-loop-process.ts';
+import { EMPTY, readConfig, save, stopRequest } from './agent-loop-state.ts';
+import type { Progress } from './agent-loop-state.ts';
+
+const HEARTBEAT_MS = 250;
+export async function supervise(dir: string, generation: string): Promise<void> {
+  const config = readConfig(dir);
+  if (config.generation !== generation || !existsSync(join(dir, 'supervisor.lock'))) throw new Error('Unowned supervisor request');
+  writeFileSync(join(dir, 'supervisor.lock', 'owner.json'), JSON.stringify({ generation, pid: process.pid }), { flag: 'wx', mode: 0o600 });
+  const progress: Progress = { ...EMPTY, generation, pid: process.pid, ready: true, heartbeat: Date.now() };
+  const publish = () => { progress.heartbeat = Date.now(); save(dir, 'progress.json', progress); };
+  const cancel = () => save(dir, 'stopped.json', { generation, cancel: true });
+  process.on('SIGTERM', cancel);
+  process.on('SIGINT', cancel);
+  publish();
+  // A heartbeat write must never kill the supervisor: a missed beat is recoverable (the next one
+  // lands 250 ms later); an uncaught throw from the timer ends the process and strands the lease.
+  const heartbeat = setInterval(() => { try { publish(); } catch { /* next beat retries */ } }, HEARTBEAT_MS);
+  let next = Date.now() + HEARTBEAT_MS;
+  let terminalReason: string | undefined;
+  // Effective session id for `{{SESSION}}` substitution. Starts as the minted pre-set id;
+  // a run's reported `resume` (capture path for CLIs that generate their own id) overrides it
+  // for all subsequent runs and is persisted to config.json so status shows it and restarts recover.
+  let session = config.session;
+  try {
+    while (!stopRequest(dir, generation) && Date.now() < config.expiresAt && progress.failures < config.maxFailures) {
+      if (Date.now() < next) { await delay(Math.min(HEARTBEAT_MS, next - Date.now())); continue; }
+      progress.running = true;
+      progress.startedAt = Date.now();
+      progress.runs++;
+      publish();
+      const result = await execute(config, dir, progress.runs, session);
+      if (result.directive?.resume) {
+        session = result.directive.resume;
+        config.session = session;
+        save(dir, 'config.json', config);
+      }
+      progress.outcome = result.outcome;
+      progress.directive = result.directive;
+      progress.finishedAt = Date.now();
+      progress.running = false;
+      progress.failures = progress.outcome === 'exit 0' ? 0 : progress.failures + 1;
+      publish();
+      if (config.requireResult && !result.directive) { terminalReason = result.outcome; break; }
+      if (result.directive?.status === 'complete') { terminalReason = 'completed'; break; }
+      if (result.directive?.status === 'blocked') {
+        progress.failures++;
+        terminalReason = 'blocked';
+        break;
+      }
+      next = Date.now() + config.interval;
+    }
+    progress.reason = terminalReason || (stopRequest(dir, generation) ? 'stopped' : progress.failures >= config.maxFailures ? 'failure limit' : 'lifetime expired');
+    progress.settled = true;
+  } catch (error) {
+    progress.reason = error instanceof Error ? error.message : String(error);
+    throw error;
+  } finally {
+    clearInterval(heartbeat);
+    progress.ended = true;
+    publish();
+    // A termination error may leave an orphan: retain the lease in that case.
+    if (!progress.running) rmSync(join(dir, 'supervisor.lock'), { recursive: true });
+  }
+}

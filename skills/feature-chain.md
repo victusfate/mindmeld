@@ -1,0 +1,132 @@
+## Instructions
+
+Run the full feature chain end-to-end. **Do not pause for permission between phases.** Pauses *within* a phase belong to the phase's own skill (grill Q&A answers, `to-prd` test-module confirmation, `tdd` granularity confirmation); the chain itself stops only at the end for user review.
+
+Treat this chain as a design feedback loop. Code, tests, debugging, and requirement
+refinement can reveal that the proposed solution is wrong. Apply the rubric's
+Design Validity criteria as evidence arrives; revise the originating design/PRD
+and remaining plan when a premise fails. Preserve valid observations and gates.
+Continue within authorized scope; return to the owner for unresolved intent or
+material tradeoffs, rather than silently converting uncertainty into a ticket.
+
+---
+
+## Entry-point detection (run before any phase)
+
+Honor the task's architectural contribution mode from the queue, or the builder's
+explicit direction. Use the guidance in `scripts/queue-model.ts` and
+`docs/agents-detail.md#architectural-contribution`. Model-led work owns technical
+design and its checks; ask the builder for product intent and consequential choices,
+not architectural homework. If no mode was supplied, use collaborative and state
+the assumption without interrupting an already clear, authorized task.
+
+Check `./docs/<feature-slug>/` for existing artifacts and detect whether a document was supplied externally (uploaded file, pasted content, or a path the user named).
+
+| State | Entry point |
+|---|---|
+| External doc supplied (any format) | Place as `design.md` → start at Phase 2 |
+| `plan.md` exists | Resume Phase 3 at first incomplete slice |
+| `prd.md` exists, no `plan.md` | Skip Phases 1–2 → start at Phase 3 |
+| `design.md` exists, no `prd.md` | Skip Phase 1 → start at Phase 2 |
+| Nothing / intent unclear | Start at Phase 1 — grill resolves what to build |
+
+State the slug before writing the first file so the user can correct it. Infer it from the document title if obvious; ask once if not.
+
+**Accepting an external document (any format):**
+
+Always treat a pasted or uploaded document as a design doc, even if it looks like a PRD, spec, or proposal.
+
+Rationale: Phase 2 (`to-prd`) adds value even when the input is already a complete PRD. It cross-references the codebase, catches conflicts with existing code, identifies modules already in place, and derives testing decisions the external doc cannot know, so `prd.md` is always codebase-aware.
+
+1. Write the content to `./docs/<feature-slug>/design.md` verbatim. Reformat into the standard design-doc structure only if it aids legibility; preserve every decision, requirement, and vocabulary term.
+2. Run `/design-review` in auto-fix mode to patch structural gaps.
+3. Commit `docs(<slug>): design Q&A and vocabulary (external)`.
+4. **Grill on ambiguity.** Read `design.md` for unresolved decisions, fuzzy vocabulary, or missing edge cases. If any, run Phase 1 (grill) on only the open questions; do not re-ask settled decisions. If the doc is complete and unambiguous, skip Phase 1.
+5. Proceed to Phase 2 (PRD synthesis).
+
+---
+
+## Phase 1: Design
+
+Run `/co-plan`; it owns the interview, the design-tree resolution, and
+`design.md`. Chain-specific glue:
+
+- **Callable units — decide at design time.** If the feature adds a tool,
+  script, skill, or bin command, the Q&A MUST resolve which home it belongs in
+  (`docs/agent-authoring-requirements.md` §1) and its descriptor contract.
+
+**When `design.md` is committed:** run `/design-review` in auto-fix mode (it
+patches `design.md` and resolves any blockers), then proceed immediately to
+Phase 2.
+
+---
+
+## Phase 2: PRD
+
+Run `/to-prd`; it owns codebase synthesis, the PRD template, and the
+testing-decisions step (including its user confirmations). Do not re-interview
+design questions; only `to-prd`'s own confirmations apply.
+
+**When `prd.md` is committed:** proceed immediately to Phase 3.
+
+---
+
+## Phase 3: Plan + TDD
+
+Run `/tdd`; it owns plan creation (vertical slices from `prd.md`, with its
+one-time granularity confirmation), the RED → GREEN → REFACTOR loop, per-slice
+commits, and `tdd-log.md`.
+
+**When all slices are complete and the full test suite passes:** run
+`/code-refiner` in auto-fix mode. It reviews the diff on two isolated,
+parallel tracks — correctness + test-integrity (`validate`) and structural
+quality (`simplify`) — merges the findings, applies them in one coherent
+pass, and re-verifies (correctness clear, all rubric dimensions 10/10). Passing
+tests alone are not enough: they cover only what the author imagined and can be
+weakened during GREEN, which the correctness track catches.
+
+**Commit the refiner's fixes** (`refactor(<feature-slug>): code-refiner fixes`,
+explicit paths) so the tree is clean, then **run `/qa`** when the feature has a
+user-facing entry point (UI route, API endpoint, CLI command, job). It starts the
+app, drives the changed entry points, fixes in-tier issues with a regression test
+each, and writes `docs/<feature-slug>/qa-report.md`. This is the reachability check from AGENTS.md
+*Veracity*: tests prove units, `/qa` proves the user can reach them. Skip it only
+when the change has no runtime entry point, and record the reason for Phase 4.
+Then proceed to Phase 4.
+
+---
+
+## Phase 4: Review
+
+Present a summary.
+- Queued task: return to the queue delivery cycle. Create/update its PR, validate locally and on the host, and merge only when explicit session or standing project authorization exists. Without merge authority, preserve the ready PR and gate the next independent task.
+- Interactive feature without that authority: stop for user review before merging.
+
+```
+## Feature complete: <feature-slug>
+
+### What was built
+- <file or module>: <one-line description>
+- …
+
+### Tests
+- <N> tests passing across <M> slices
+- Behaviors covered: <list>
+
+### QA
+- <`/qa` summary line, e.g. "QA found 3 issues, fixed 3 (verified 3), deferred 0, blocked 0">
+- or "skipped — <reason the change has no runtime entry point>"
+
+### Decisions that deviated from the plan
+- <any divergence, or "none">
+```
+
+When merge authority is absent, prompt: **"All tests pass. Please review the generated source before merging."**
+
+Wait here unless existing session or standing project policy already authorizes the validated merge. Never infer merge authority from permission to create a PR.
+
+---
+
+## Stopping and resuming
+
+If the user says "stop", "pause", or "just answer", stop the chain immediately. Resume any phase individually: `/co-plan`, `/to-prd`, `/tdd`.

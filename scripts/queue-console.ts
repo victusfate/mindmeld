@@ -1,0 +1,473 @@
+#!/usr/bin/env node
+// queue-console.ts — the queue's management console: a typed software interface
+// over the work queue so every mutation (web page, agent, script) flows through
+// validated operations instead of hand-editing Markdown. Pure core in this
+// file's top half: ConsoleState (the derived snapshot the page renders) and
+// applyOp (a validated dispatcher over the queue-model ops that also guards
+// dependency integrity — unknown deps, cycles, and removals that would orphan
+// dependents are rejected with the queue untouched).
+//
+// Management surface only, by design (docs/queue-console/design.md D3): no
+// done/fail/claim/worktree ops and nothing here ever executes a shell command.
+//
+// Bottom half: the console server — a zero-dependency loopback HTTP server
+// (mermaid-watch.ts pattern) serving the page, the state JSON, the op
+// endpoint, and an SSE channel that fires when the queue file changes.
+// Usage: node scripts/queue-console.ts [--port 8722]   (QUEUE_FILE honored)
+
+import http from 'node:http';
+import { readFileSync, mkdirSync } from 'node:fs';
+import { basename, join, dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { load, save, log, appendArchive, queueFile, dbFile, withLock, now, ROOT } from './queue-io.ts';
+import { QueueIntegrityError } from './queue-db.ts';
+import { laneDir, readLanes, laneStale, requestStop, stopRequested, type LaneState } from './queue-lanes.ts';
+import { collectHostStatus, createCachedHostProbe, type HostStatus } from './queue-host-status.ts';
+import { createSseChannel, watchFileChanges } from './sse-watch.ts';
+import {
+  addTask, setField, removeTask, moveToTop, moveTask, requeueTask, unclaimTask, beginTask, setConfig,
+  holdTask, forceFail, reopenTask, markDone, archivableDone,
+  deliveryAllows, isEligible, deadlocked, drainSignal, EDITABLE_TASK_FIELDS, fieldPatch, sweepFinished,
+  NUMERIC_CONFIG_KEYS, TEXT_CONFIG_KEYS, ARCHITECTURE_MODES, DEFAULT_ARCHITECTURE, architectureGuidance,
+  type Queue, type QueueConfig, type Task,
+} from './queue-model.ts';
+
+// ---------------------------------------------------------------- contracts
+
+export interface TaskPatch {
+  title?: string; mode?: string; architecture?: string; held?: string; elapsed?: string; slug?: string; deps?: string;
+  files?: string; contracts?: string; tags?: string; validate?: string; accept?: string; note?: string;
+}
+
+const CONFIG_KEYS = [...NUMERIC_CONFIG_KEYS, ...TEXT_CONFIG_KEYS];
+export type ConfigKey = typeof CONFIG_KEYS[number];
+
+export type Op =
+  | { op: 'add'; title: string; top?: boolean; fields?: TaskPatch }
+  | { op: 'set'; id: string; fields: TaskPatch }
+  | { op: 'remove' | 'top' | 'requeue' | 'stop-lane' | 'release' | 'hold' | 'unhold' | 'reopen' | 'mark-done'; id: string }
+  | { op: 'claim-lane'; id: string }
+  | { op: 'force-fail'; id: string; note?: string }
+  | { op: 'move'; id: string; to: number }
+  | { op: 'start' | 'stop' | 'archive' | 'reassign' }
+  | { op: 'config'; key: ConfigKey; value: string };
+
+export type OpResult =
+  | { ok: true; queue: Queue; archived: Task[] }
+  | { ok: false; error: string };
+
+export interface ConsoleTask extends Task { eligible: boolean; deadlocked: boolean }
+export interface ConsoleState {
+  architectureModes: readonly string[];
+  defaultArchitecture: string;
+  architectureGuidance: Record<string, string>;
+  config: QueueConfig;
+  tasks: ConsoleTask[];
+  drain: string | null;
+}
+
+export interface LaneView extends LaneState { stale: boolean; stop: boolean }
+export interface QueueConsoleServerOptions {
+  hostProbe?: (queueRoot: string, activeWorktrees: string[]) => Promise<HostStatus>;
+}
+
+function activeWorktreePaths(q: Queue): string[] {
+  const queueRoot = dirname(queueFile());
+  const checkoutRoot = basename(queueRoot) === 'queue' && basename(dirname(queueRoot)) === '.agent'
+    ? resolve(queueRoot, '..', '..') : ROOT;
+  return q.tasks.filter(task => task.status === 'active' && task.worktree)
+    .map(task => resolve(checkoutRoot, task.worktree!));
+}
+
+/** Live lane records for the board: heartbeats plus derived staleness. */
+export function laneViews(q: Queue): LaneView[] {
+  const at = now();
+  return readLanes().map(l => ({
+    ...l, stale: laneStale(l, at, q.config.leaseMinutes), stop: stopRequested(l.id),
+  }));
+}
+
+// ---------------------------------------------------------------- state
+
+/** The derived snapshot the console page renders — model truth, not page logic. */
+export function consoleState(q: Queue): ConsoleState {
+  const stuck = new Set(deadlocked(q).map(t => t.id));
+  return {
+    architectureModes: ARCHITECTURE_MODES, defaultArchitecture: DEFAULT_ARCHITECTURE,
+    architectureGuidance: Object.fromEntries(ARCHITECTURE_MODES.map(mode => [mode, architectureGuidance(mode)])),
+    config: q.config,
+    tasks: q.tasks.map(t => ({ ...t, eligible: isEligible(t, q), deadlocked: stuck.has(t.id) })),
+    drain: drainSignal(q),
+  };
+}
+
+// ---------------------------------------------------------------- validation
+
+const PATCHABLE = EDITABLE_TASK_FIELDS;
+
+/**
+ * Convert a wire TaskPatch (all strings) into a model patch, or name the bad
+ * field. Boundary checks live here; the coercion itself is the model's
+ * canonical `fieldPatch` grammar.
+ */
+function parsePatch(fields: TaskPatch): { patch: Partial<Task> } | { error: string } {
+  const unknown = Object.keys(fields).find(k => !(PATCHABLE as readonly string[]).includes(k));
+  if (unknown) return { error: `unknown field: ${unknown}` };
+  const patch: Partial<Task> = {};
+  if (fields.title !== undefined) {
+    if (!fields.title.trim()) return { error: 'title cannot be empty' };
+    patch.title = fields.title.trim();
+  }
+  for (const key of PATCHABLE) {
+    const val = fields[key];
+    if (key !== 'title' && val !== undefined) {
+      try { Object.assign(patch, fieldPatch(key, val)); }
+      catch (error) { return { error: String(error) }; }
+    }
+  }
+  return { patch };
+}
+
+/**
+ * Guard the dependency DAG for one task's proposed deps: every dep must name an
+ * existing task, none may be the task itself, and following deps from the task
+ * must never lead back to it (no cycles). `tasks` is the post-op task list.
+ */
+function depsError(tasks: Task[], id: string, deps: string[]): string | null {
+  const byId = new Map(tasks.map(t => [t.id, t]));
+  for (const d of deps) {
+    if (d === id) return `self-dependency: ${id}`;
+    if (!byId.has(d)) return `dependency on a nonexistent task: ${d}`;
+  }
+  const seen = new Set<string>();
+  const stack = [...deps];
+  while (stack.length) {
+    const cur = stack.pop()!;
+    if (cur === id) return `dependency cycle through ${id}`;
+    if (seen.has(cur)) continue;
+    seen.add(cur);
+    stack.push(...(byId.get(cur)?.dependsOn ?? []));
+  }
+  return null;
+}
+
+/** Unfinished tasks that still depend on `id` — removal would orphan them. */
+function unfinishedDependents(q: Queue, id: string): Task[] {
+  return q.tasks.filter(t => (t.status === 'pending' || t.status === 'active')
+    && t.dependsOn.includes(id));
+}
+
+// ---------------------------------------------------------------- dispatch
+
+const ok = (queue: Queue, archived: Task[] = []): OpResult => ({ ok: true, queue, archived });
+const reject = (error: string): OpResult => ({ ok: false, error });
+
+function applyTaskPatch(q: Queue, id: string, fields: TaskPatch): OpResult {
+  const parsed = parsePatch(fields);
+  if ('error' in parsed) return reject(parsed.error);
+  if (parsed.patch.dependsOn) {
+    const bad = depsError(q.tasks, id, parsed.patch.dependsOn);
+    if (bad) return reject(bad);
+  }
+  return ok(setField(q, id, parsed.patch));
+}
+
+function applyAdd(q: Queue, op: { title: string; top?: boolean; fields?: TaskPatch }): OpResult {
+  if (typeof op.title !== 'string' || !op.title.trim()) return reject('add: title is required');
+  const parsed = parsePatch(op.fields ?? {});
+  if ('error' in parsed) return reject(parsed.error);
+  if (parsed.patch.dependsOn) {
+    const bad = depsError(q.tasks, '', parsed.patch.dependsOn);
+    if (bad) return reject(bad);
+  }
+  return ok(addTask(q, op.title, { top: op.top === true, ...parsed.patch }));
+}
+
+function applyConfigOp(q: Queue, key: ConfigKey, value: string): OpResult {
+  if (key === 'deliveryMode' && value !== 'per-task' && value !== 'batch') return reject('config: deliveryMode must be per-task or batch');
+  if (!CONFIG_KEYS.includes(key)) return reject(`config: unknown key ${String(key)}`);
+  if ((NUMERIC_CONFIG_KEYS as readonly string[]).includes(key)) {
+    const n = Number(value);
+    if (!Number.isFinite(n) || n < 1) return reject(`config: ${key} needs a positive number`);
+    return ok(setConfig(q, { [key]: n }));
+  }
+  return ok(setConfig(q, { [key]: value }));
+}
+
+/** Reject unless the op's `id` names a task in the queue. Null when it does. */
+function unknownId(q: Queue, op: { op: string; id: string }): OpResult | null {
+  if (typeof op.id === 'string' && q.tasks.some(t => t.id === op.id)) return null;
+  return reject(`${op.op}: unknown task id ${String(op.id ?? '')}`.trim());
+}
+
+/**
+ * Apply one validated console operation to the queue. Pure: returns the new
+ * queue (plus, for `archive`, the swept tasks for the caller to persist) or a
+ * rejection with the queue untouched. The single mutation gateway for every
+ * console surface, so the file format and the dependency DAG stay intact.
+ */
+export function applyOp(q: Queue, op: Op, nowIso: string = now()): OpResult {
+  if (!op || typeof op !== 'object' || typeof op.op !== 'string') return reject('missing op');
+
+  switch (op.op) {
+    case 'add': return applyAdd(q, op);
+    case 'start': return ok(setConfig(q, { status: 'running', resumeAt: '' }));
+    case 'stop': return ok(setConfig(q, { status: 'stopped', resumeAt: '' }));
+    case 'config': return applyConfigOp(q, op.key, op.value);
+    case 'archive': {
+      const { queue, swept } = sweepFinished(q);
+      return ok(queue, swept);
+    }
+    // Reassign recomputes nothing server-side: it re-reads the file, records
+    // the request in the audit log (via handleOp), and returns fresh state —
+    // whose drain marker is the kick that wakes an armed Monitor/loop. Active
+    // claims are never touched; the page derives the { active, next } plan
+    // from the returned state. Drivers honor the new order on their next tick.
+    case 'reassign': return ok(q);
+    case 'set':
+      return unknownId(q, op) ?? applyTaskPatch(q, op.id, op.fields ?? {});
+    case 'remove': {
+      const bad = unknownId(q, op);
+      if (bad) return bad;
+      const blocked = unfinishedDependents(q, op.id);
+      if (blocked.length) {
+        return reject(`remove: ${blocked.map(t => t.id).join(', ')} depend(s) on ${op.id} — edit their deps first`);
+      }
+      return ok(removeTask(q, op.id));
+    }
+    case 'top': return unknownId(q, op) ?? ok(moveToTop(q, op.id));
+    case 'claim-lane': {
+      const bad = unknownId(q, op);
+      if (bad) return bad;
+      const t = q.tasks.find(x => x.id === op.id)!;
+      if (t.status !== 'pending') return reject(`claim-lane: ${op.id} is ${t.status}, not claimable`);
+      const taken = new Set(q.tasks.filter(x => x.status === 'active').map(x => x.owner));
+      if (!deliveryAllows(q, op.id)) return reject('claim-lane: current delivery cycle must finish first');
+      if (t.held) return reject(`claim-lane: ${op.id} is held — unhold it first`);
+      if (taken.size >= q.config.maxParallel) {
+        return reject(`claim-lane: no free lane (maxParallel ${q.config.maxParallel})`);
+      }
+      let n = 1;
+      while (taken.has(`lane-${n}`)) n++;
+      return ok(beginTask(q, op.id, nowIso, `lane-${n}`));
+    }
+    case 'release': {
+      const bad = unknownId(q, op);
+      if (bad) return bad;
+      const t = q.tasks.find(x => x.id === op.id)!;
+      if (t.status !== 'active') return reject(`release: ${op.id} is ${t.status}, not active`);
+      return ok(unclaimTask(q, op.id, nowIso));
+    }
+    case 'hold': {
+      const bad = unknownId(q, op);
+      if (bad) return bad;
+      const t = q.tasks.find(x => x.id === op.id)!;
+      if (t.status !== 'pending') return reject(`hold: ${op.id} is ${t.status} — only pending tasks park`);
+      return ok(holdTask(q, op.id, true));
+    }
+    case 'unhold': return unknownId(q, op) ?? ok(holdTask(q, op.id, false));
+    case 'reopen': {
+      const bad = unknownId(q, op);
+      if (bad) return bad;
+      const t = q.tasks.find(x => x.id === op.id)!;
+      if (t.status !== 'done') return reject(`reopen: ${op.id} is ${t.status}, not done`);
+      return ok(reopenTask(q, op.id));
+    }
+    case 'mark-done': {
+      // Operator-done: the board twin of `queue done --skip-validate`. The
+      // console never runs the task's validate command (D3); the operator's
+      // explicit drop is the approval, recorded in the audit log by handleOp.
+      const bad = unknownId(q, op);
+      if (bad) return bad;
+      if (q.tasks.find(x => x.id === op.id)!.status === 'done') return ok(q);
+      let dq = markDone(q, op.id, nowIso);
+      const sweep = archivableDone(dq);
+      for (const s of sweep) dq = removeTask(dq, s.id);
+      return ok(dq, sweep);
+    }
+    case 'force-fail': {
+      const bad = unknownId(q, op);
+      if (bad) return bad;
+      const t = q.tasks.find(x => x.id === op.id)!;
+      if (t.status === 'failed') return ok(q);
+      if (t.status === 'done') return reject(`force-fail: ${op.id} is done — reopen it first`);
+      const note = typeof op.note === 'string' && op.note.trim() ? op.note.trim() : 'operator moved to Failed';
+      return ok(forceFail(q, op.id, note, nowIso));
+    }
+    case 'stop-lane': return unknownId(q, op) ?? ok(q);
+    case 'requeue': return unknownId(q, op) ?? ok(requeueTask(q, op.id));
+    case 'move': {
+      const bad = unknownId(q, op);
+      if (bad) return bad;
+      if (!Number.isInteger(op.to) || op.to < 0) return reject('move: `to` must be a non-negative integer index');
+      return ok(moveTask(q, op.id, op.to));
+    }
+    default: return reject(`unknown op: ${(op as { op: string }).op}`);
+  }
+}
+
+// ---------------------------------------------------------------- server
+
+const HERE = dirname(fileURLToPath(import.meta.url));
+const TEMPLATE = join(HERE, 'queue-console.template.html');
+const DEFAULT_PORT = 8722;
+const HTTP_OK = 200;
+const HTTP_BAD_REQUEST = 400;
+const HTTP_CONFLICT = 409;
+const HTTP_FORBIDDEN = 403;
+const HTTP_NOT_FOUND = 404;
+const HTTP_SERVER_ERROR = 500;
+const WATCH_INTERVAL_MS = 500;
+const MAX_BODY_BYTES = 64 * 1024;
+
+/**
+ * Only loopback names are legitimate Hosts for this server. Anything else is a
+ * DNS-rebinding attempt (a hostile page resolving its own domain to 127.0.0.1
+ * to smuggle requests past the browser's same-origin policy) — refuse it.
+ */
+const LOOPBACK_HOST = /^(127\.0\.0\.1|localhost|\[::1\])(:\d+)?$/;
+
+function readBody(req: http.IncomingMessage): Promise<string> {
+  return new Promise((resolve, reject_) => {
+    let body = '';
+    req.on('data', (chunk: Buffer) => {
+      body += chunk.toString('utf8');
+      if (body.length > MAX_BODY_BYTES) { req.destroy(); reject_(new Error('body too large')); }
+    });
+    req.on('end', () => resolve(body));
+    req.on('error', reject_);
+  });
+}
+
+function sendJson(res: http.ServerResponse, status: number, payload: unknown): void {
+  res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8' });
+  res.end(JSON.stringify(payload));
+}
+
+/**
+ * Apply one op posted by the page: parse → validate through applyOp → persist.
+ * The archive sidecar is written before the queue file, matching the CLI's
+ * ordering (a crash between the two duplicates an audit line rather than
+ * losing a task), and every accepted op lands in the audit log. Requiring a
+ * JSON content-type is a security boundary, not pedantry: it forces any
+ * cross-origin browser request into a CORS preflight, which this server never
+ * answers — so a hostile web page cannot fire a "simple" no-preflight POST at
+ * the op endpoint.
+ */
+async function handleOp(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
+  // Compare the MIME *essence* (before any ';param'), not a substring — a
+  // header like `text/plain; application/json` is essence text/plain, which
+  // browsers treat as CORS-safelisted and send without preflight.
+  const essence = (req.headers['content-type'] ?? '').split(';')[0].trim().toLowerCase();
+  if (essence !== 'application/json') {
+    sendJson(res, HTTP_BAD_REQUEST, { error: 'content-type must be application/json' });
+    return;
+  }
+  let op: Op;
+  try {
+    op = JSON.parse(await readBody(req)) as Op;
+  } catch (e) {
+    sendJson(res, HTTP_BAD_REQUEST, { error: `invalid JSON body: ${(e as Error).message}` });
+    return;
+  }
+  let result: ReturnType<typeof applyOp>;
+  try {
+    result = withLock(() => {
+      const applied = applyOp(load(), op);
+      if (applied.ok) {
+        save(applied.queue);
+        if (applied.archived.length) appendArchive(applied.archived);
+        // stop-lane is validated by applyOp but takes effect here: the flag
+        // file is the cooperative signal the owning driver honors (never a kill).
+        if (op.op === 'stop-lane') requestStop(op.id);
+      }
+      return applied;
+    });
+  } catch (e) {
+    if (!(e instanceof QueueIntegrityError)) throw e;
+    sendJson(res, HTTP_CONFLICT, { error: e.message });
+    return;
+  }
+  if (!result.ok) { sendJson(res, HTTP_BAD_REQUEST, { error: result.error }); return; }
+  log(`console ${op.op}${'id' in op ? ' ' + op.id : ''}`);
+  sendJson(res, HTTP_OK, consoleState(load()));
+}
+
+/**
+ * Start the console server on 127.0.0.1 — a personal steering surface, never
+ * exposed beyond the machine. Every request must carry a loopback Host (see
+ * LOOPBACK_HOST). SSE clients get a `changed` event whenever the queue file's
+ * mtime moves (worker writes included). `close()` is overridden to also end
+ * SSE clients and detach the file watcher — otherwise the held-open streams
+ * and the poller would keep the process alive after a shutdown.
+ */
+export function startServer(port: number, options: QueueConsoleServerOptions = {}): http.Server {
+  const sse = createSseChannel();
+  const probe = options.hostProbe
+    ?? ((root: string, worktrees: string[]) => collectHostStatus(root, {}, worktrees));
+  const hostProbe = createCachedHostProbe(() => probe(dirname(queueFile()), activeWorktreePaths(load())));
+  const handleRequest = (req: http.IncomingMessage, res: http.ServerResponse): void => {
+    if (!LOOPBACK_HOST.test(req.headers.host ?? '')) {
+      sendJson(res, HTTP_FORBIDDEN, { error: 'forbidden: loopback host required' });
+    } else if (req.method === 'GET' && req.url === '/') {
+      res.writeHead(HTTP_OK, { 'Content-Type': 'text/html; charset=utf-8' });
+      res.end(readFileSync(TEMPLATE, 'utf8'));
+    } else if (req.method === 'GET' && req.url === '/api/queue') {
+      sendJson(res, HTTP_OK, consoleState(load()));
+    } else if (req.method === 'GET' && req.url === '/api/lanes') {
+      sendJson(res, HTTP_OK, { lanes: laneViews(load()) });
+    } else if (req.method === 'GET' && req.url === '/api/host') {
+      hostProbe()
+        .then(status => sendJson(res, HTTP_OK, status))
+        .catch((error: unknown) => sendJson(res, HTTP_SERVER_ERROR, { error: (error as Error).message }));
+    } else if (req.method === 'POST' && req.url === '/api/op') {
+      handleOp(req, res).catch((e: unknown) => {
+        if (!res.headersSent) sendJson(res, HTTP_SERVER_ERROR, { error: (e as Error).message });
+        else res.end();
+      });
+    } else if (req.method === 'GET' && req.url === '/events') {
+      sse.attach(req, res);
+    } else {
+      res.writeHead(HTTP_NOT_FOUND);
+      res.end();
+    }
+  };
+  const server = http.createServer((req, res) => {
+    try { handleRequest(req, res); }
+    catch (error) {
+      if (!res.headersSent) sendJson(res, HTTP_SERVER_ERROR, { error: (error as Error).message });
+      else res.end();
+    }
+  });
+
+  mkdirSync(laneDir(), { recursive: true });
+  // Watch the store, not the view: a save from any worktree commits to it.
+  const unwatch = watchFileChanges(dbFile(), WATCH_INTERVAL_MS, () => sse.broadcast('changed'));
+  const unwatchLanes = watchFileChanges(laneDir(), WATCH_INTERVAL_MS, () => sse.broadcast('changed'));
+  const netClose = server.close.bind(server);
+  server.close = (cb?: (err?: Error) => void): http.Server => {
+    unwatch();
+    unwatchLanes();
+    sse.end();
+    server.closeAllConnections();
+    return netClose(cb);
+  };
+
+  server.listen(port, '127.0.0.1');
+  return server;
+}
+
+function main(argv: string[]): void {
+  let port = DEFAULT_PORT;
+  for (let i = 0; i < argv.length; i++) {
+    if (argv[i] === '--port') port = Number(argv[++i]);
+    else { process.stderr.write(`usage: node scripts/queue-console.ts [--port ${DEFAULT_PORT}]\n`); process.exit(1); }
+  }
+  if (!Number.isInteger(port) || port < 0) { process.stderr.write('queue-console: --port needs a number\n'); process.exit(1); }
+  startServer(port).on('listening', function (this: http.Server) {
+    const addr = this.address() as { port: number };
+    process.stdout.write(`queue-console: http://localhost:${addr.port}  (queue ${queueFile()})\n`);
+  });
+}
+
+if (process.argv[1] === fileURLToPath(import.meta.url)) main(process.argv.slice(2));

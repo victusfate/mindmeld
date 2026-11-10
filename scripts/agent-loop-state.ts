@@ -1,0 +1,197 @@
+import { createHash, randomUUID } from 'node:crypto';
+// Private durable configuration and per-run progress for the external loop CLI.
+import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { homedir } from 'node:os';
+import { isAbsolute, join } from 'node:path';
+import { setTimeout as delay } from 'node:timers/promises';
+
+const SECOND = 1000;
+const HEARTBEAT_STALE_MS = 5000;
+const DURATION_HINT = 'use 10min, 10m, 30s, or 8h (maximum 30 days)';
+const MINUTE = 60 * SECOND;
+const HOUR = 60 * MINUTE;
+const MAX_DURATION = 30 * 24 * HOUR;
+const CONTROL_RETRIES = 40;
+const CONTROL_RETRY_MS = 25;
+const UNITS: Record<string, number> = { ms: 1, s: SECOND, m: MINUTE, min: MINUTE, h: HOUR };
+export interface Config {
+  cwd: string; unit: string; generation: string; argv: string[];
+  interval: number; timeout: number; expiresAt: number; maxFailures: number;
+  requireResult: boolean;
+  // Session continuity (opt-in): when a `:::` sentinel splits the start argv, `argv` is the COLD
+  // command (run 1, full context) and `warmArgv` is the WARM command (runs 2+, a short continuation
+  // prompt). `session` starts as a driver-minted id substituted for the `{{SESSION}}` token in either argv
+  // (pre-set path: `--session-id {{SESSION}}` then `--resume {{SESSION}}`). A run may instead report
+  // `"resume"` in its result (capture path for CLIs that generate their own id, e.g. codex thread_id);
+  // the runner then overwrites `session` so the next run resumes the captured id. Persisted to
+  // config.json so status shows the effective id and restarts recover it.
+  warmArgv?: string[]; session?: string;
+}
+export interface AgentDirective {
+  status: 'continue' | 'complete' | 'blocked';
+  summary: string;
+  // Capture path (complements the pre-set {{SESSION}} path): when a run reports
+  // `resume`, the driver substitutes it for `{{SESSION}}` on the NEXT run,
+  // overriding the minted id. Lets CLIs that generate their own session id
+  // (codex thread_id, pi session file) participate without driver CLI knowledge.
+  resume?: string;
+}
+export interface Progress {
+  runs: number; failures: number; running: boolean; startedAt?: number;
+  finishedAt?: number; outcome?: string; generation?: string; pid?: number;
+  heartbeat?: number; ready?: boolean; ended?: boolean; settled?: boolean; reason?: string;
+  directive?: AgentDirective;
+}
+export type SteeringOutcome = 'applied' | 'deferred' | 'blocked';
+export interface SteeringRecord {
+  id: string; generation: string; receivedAt: number; message: string;
+  acknowledgedAt?: number; outcome?: SteeringOutcome; note?: string;
+}
+interface Acknowledgement { generation: string; id: string; outcome: SteeringOutcome; note?: string }
+interface Inbox { records: SteeringRecord[] }
+export const EMPTY: Progress = { runs: 0, failures: 0, running: false };
+
+export function cleanTerminalStartup(progress: Progress, generation: string): boolean {
+  return progress.generation === generation && progress.ready === true
+    && progress.ended === true && progress.settled === true;
+}
+
+export function duration(value: string): number {
+  const match = /^(\d+)(ms|s|m|min|h)$/.exec(value);
+  const result = match ? Number(match[1]) * UNITS[match[2]] : NaN;
+  if (!Number.isSafeInteger(result) || result < 1 || result > MAX_DURATION) {
+    throw new Error(`Invalid duration: ${value}; ${DURATION_HINT}`);
+  }
+  return result;
+}
+
+export function location(cwd: string): { cwd: string; dir: string; unit: string } {
+  cwd = realpathSync(cwd);
+  if (!statSync(cwd).isDirectory()) throw new Error('cwd must be a directory');
+  const identity = process.platform === 'win32' ? cwd.toLowerCase() : cwd;
+  const id = createHash('sha256').update(identity).digest('hex');
+  const root = process.env.XDG_STATE_HOME || join(homedir(), '.local', 'state');
+  if (!isAbsolute(root)) throw new Error('XDG_STATE_HOME must be absolute');
+  return { cwd, dir: join(root, 'scaffold-agent-loop', id), unit: `scaffold-loop-${id}` };
+}
+
+export function readConfig(dir: string): Config {
+  return JSON.parse(readFileSync(join(dir, 'config.json'), 'utf8')) as Config;
+}
+
+export function readProgress(dir: string): Progress {
+  const path = join(dir, 'progress.json');
+  return existsSync(path) ? JSON.parse(readFileSync(path, 'utf8')) as Progress : { ...EMPTY };
+}
+
+// Windows refuses to rename over a file another process has open (EPERM/EBUSY/EACCES) — e.g. a
+// status() reader polling progress.json. Those are transient sharing violations, not failures:
+// retry briefly instead of throwing, because a throw from the supervisor's heartbeat timer kills
+// the supervisor and leaves it looking "stale" to the next stop.
+const RENAME_RETRY_CODES = new Set(['EPERM', 'EBUSY', 'EACCES']);
+const RENAME_ATTEMPTS = 40;
+const RENAME_BACKOFF_MS = 5;
+const INT32_BYTES = 4;
+const sleepSync = (ms: number) => Atomics.wait(new Int32Array(new SharedArrayBuffer(INT32_BYTES)), 0, 0, ms);
+
+export function save(dir: string, name: string, value: unknown): void {
+  const temp = join(dir, `${name}.${randomUUID()}.tmp`);
+  try {
+    writeFileSync(temp, JSON.stringify(value, null, 2) + '\n', { mode: 0o600, flag: 'wx' });
+    for (let attempt = 1; ; attempt++) {
+      try {
+        renameSync(temp, join(dir, name));
+        break;
+      } catch (error) {
+        const code = (error as NodeJS.ErrnoException).code ?? '';
+        if (!RENAME_RETRY_CODES.has(code) || attempt >= RENAME_ATTEMPTS) throw error;
+        sleepSync(RENAME_BACKOFF_MS * attempt);
+      }
+    }
+  } finally { rmSync(temp, { force: true }); }
+}
+
+export function readInbox(dir: string): SteeringRecord[] {
+  const path = join(dir, 'inbox.json');
+  return existsSync(path) ? (JSON.parse(readFileSync(path, 'utf8')) as Inbox).records : [];
+}
+
+export function pendingSteering(dir: string, generation: string): SteeringRecord[] {
+  return readInbox(dir).filter(item => item.generation === generation && !item.outcome);
+}
+
+export function addSteering(dir: string, generation: string, message: string): SteeringRecord {
+  const records = readInbox(dir);
+  const record: SteeringRecord = { id: randomUUID(), generation, receivedAt: Date.now(), message };
+  records.push(record);
+  save(dir, 'inbox.json', { records });
+  return record;
+}
+
+export function acknowledgeSteering(dir: string, acknowledgement: Acknowledgement): SteeringRecord {
+  const records = readInbox(dir);
+  const { generation, id, outcome, note } = acknowledgement;
+  const record = records.find(item => item.generation === generation && item.id === id);
+  if (!record) throw new Error('No steering message matches the active generation and id');
+  if (record.outcome && (record.outcome !== outcome || record.note !== note)) {
+    throw new Error('Steering message was already acknowledged with a different outcome');
+  }
+  if (!record.outcome) {
+    record.acknowledgedAt = Date.now();
+    record.outcome = outcome;
+    record.note = note;
+    save(dir, 'inbox.json', { records });
+  }
+  return record;
+}
+
+export function initialize(dir: string): void {
+  if (existsSync(dir)) {
+    const stat = lstatSync(dir);
+    if (!stat.isDirectory() || (process.getuid && stat.uid !== process.getuid())) throw new Error('Unsafe loop state directory');
+    if (readdirSync(dir).length && !existsSync(join(dir, 'config.json'))) throw new Error('Refusing to overwrite unrelated state');
+  }
+  mkdirSync(dir, { recursive: true, mode: 0o700 });
+}
+
+export async function withControlLock<T>(dir: string, action: () => T | Promise<T>): Promise<T> {
+  const lock = join(dir, 'control.lock');
+  for (let attempt = 0; attempt < CONTROL_RETRIES; attempt++) {
+    try { mkdirSync(lock, { mode: 0o700 }); } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
+      if (attempt + 1 < CONTROL_RETRIES) {
+        await delay(CONTROL_RETRY_MS);
+        continue;
+      }
+      break;
+    }
+    try { return await action(); } finally { rmSync(lock, { recursive: true }); }
+  }
+  throw new Error('Loop control is busy; inspect control.lock if an earlier CLI crashed');
+}
+
+export function stopRequest(dir: string, generation: string): { cancel: boolean } | undefined {
+  const path = join(dir, 'stopped.json');
+  if (!existsSync(path)) return;
+  const request = JSON.parse(readFileSync(path, 'utf8')) as { generation: string; cancel: boolean };
+  if (request.generation === generation) return request;
+}
+
+export function alive(progress: Progress): boolean {
+  if (!progress.pid || progress.ended || !progress.heartbeat || Date.now() - progress.heartbeat > HEARTBEAT_STALE_MS) return false;
+  try { process.kill(progress.pid, 0); return true; } catch { return false; }
+}
+
+// The single source of truth for loop status, shared by the CLI, the supervise loop, and
+// test fixtures (which poll this directly instead of spawning a CLI process per poll).
+export function status(dir: string): object {
+  const config = readConfig(dir);
+  const progress = readProgress(dir);
+  const live = alive(progress);
+  const stopped = stopRequest(dir, config.generation);
+  const pending = pendingSteering(dir, config.generation).length;
+  return { ...config, ...progress, driver: 'node', armed: live && !stopped && Date.now() < config.expiresAt,
+    supervisor: live ? 'active' : progress.ended ? 'stopped' : 'stale',
+    running: live && progress.running, interrupted: !live && progress.running,
+    stopRequested: !!stopped, pendingSteering: pending, log: join(dir, 'output.log') };
+}

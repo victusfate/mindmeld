@@ -1,0 +1,78 @@
+# RESOLVER — Skill Routing Table
+
+Central routing layer for the skill engine. Every skill on disk MUST be
+registered here (enforced by `scripts/check-resolvable.ts`). The orchestrator
+matches user input against **Invocation Regex** top-to-bottom and dispatches to
+the first match.
+
+| Skill | Invocation Regex | Path | Purpose |
+|---|---|---|---|
+| loop | `/(?:^\/loop\b)/i` | `skills/loop.md` | Schedule recurring work, inspect or stop loops, and route user steering to an active main-orchestrator loop by default; portable macOS/Linux/WSL/Windows driver |
+| feature-chain | `/(?:^\/feature-chain\b)\|(?:build\|implement\|add)\s+(?:a\s+)?(?:new\s+)?(?:feature\|capability)/i` | `skills/feature-chain.md` | Orchestrate design → PRD → TDD → review end to end |
+| co-plan | `/(?:^\/co-plan\b)\|(?:stress[-\s]?test\|sharpen)\s+(?:the\s+)?(?:plan\|design\|idea)/i` | `skills/co-plan.md` | Collaborate with the user to resolve a feature idea, constraints, and design decisions into design.md before implementation |
+| to-prd | `/(?:^\/to-prd\b)\|(?:write\|create\|generate)\s+(?:a\s+)?prd/i` | `skills/to-prd.md` | Synthesize context + codebase → prd.md |
+| tdd | `/(?:^\/tdd\b)\|red[-\s]?green[-\s]?refactor\|test[-\s]?(?:first\|driven)/i` | `skills/tdd.md` | Vertical-slice TDD → plan.md + tdd-log.md |
+| design-review | `/(?:^\/design-review\b)\|review\s+(?:the\s+)?design(?:\.md)?/i` | `skills/design-review.md` | Structural review of design.md |
+| skillify | `/(?:^\/skillify\b)\|(?:turn\s+(?:this\|the)\s+session\s+into\|extract)\s+(?:a\s+)?(?:new\s+)?skill/i` | `skills/skillify.md` | Capture a completed session as a reusable skill + PR to scaffold |
+| sync-scaffold | `/(?:^\/sync-scaffold\b)\|(?:sync\|bootstrap)\s+(?:from\s+)?(?:the\s+)?scaffold/i` | `skills/sync-scaffold.md` | Bootstrap scaffold into a repo or sync an existing one from upstream |
+| create-pr | `/(?:^\/create-pr\b)\|(?:open\|create\|submit\|make)\s+(?:a\s+)?(?:pull\s+request\|PR)/i` | `skills/create-pr.md` | Create a PR for the current branch and immediately subscribe to its activity |
+| validate | `/(?:^\/validate\b)\|(?:validate\|review\|check)\s+(?:the\s+)?(?:diff\|pr\|change)\s*(?:for\s+bugs)?/i` | `skills/validate.md` | Validate the current diff for correctness bugs and test-integrity regressions at a configurable effort level |
+| simplify | `/(?:^\/simplify\b)\|(?:simplify\s+(?:the\s+)?(?:code\|changed\s+files)\|review\s+(?:the\s+)?(?:code\|implementation)\s+quality)/i` | `skills/simplify.md` | Structural-quality review of changed code: score against the rubric, gate at 10/10, and apply reuse/simplification/efficiency/altitude cleanups |
+| code-refiner | `/(?:^\/code-refiner\b)\|(?:review\s+and\s+fix\|refine)\s+(?:the\s+)?(?:diff\|change\|code)/i` | `skills/code-refiner.md` | Composite review-and-fix: parallel validate + simplify reviews, merged findings, then a single serial fixer with re-verify |
+| prune | `/(?:^\/prune\b)|(?:deep\s+clean|full\s+quality\s+rework)\s+(?:the\s+)?codebase/i` | `skills/prune.md` | Run all quality review skills and funnel findings into design→PRD→TDD→PR |
+| pause | `/(?:^\/pause\b)|(?:pause|checkpoint)\s+(?:the\s+)?(?:session|work)|cache\s+(?:this\s+)?session|save\s+my\s+place|stepping\s+away/i` | `skills/pause.md` | Checkpoint the session into git — write a handoff, commit work in flight, and push so any device can resume |
+| resume | `/(?:^\/resume\b)|resume\s+(?:the\s+)?(?:session|work)|pick\s+up\s+where|continue\s+from\s+(?:the\s+)?handoff|load\s+(?:the\s+)?handoff/i` | `skills/resume.md` | Reload a checkpointed session from the pushed handoff and continue from its next steps, cold or cross-device |
+| save | `/(?:^\/save\b)|save\s+(?:the\s+)?(?:session|progress|checkpoint|state)|checkpoint\s+(?:this\s+)?(?:step|progress)|incremental\s+(?:save|checkpoint)/i` | `skills/save.md` | Lightweight incremental checkpoint for a long run — refresh the handoff, commit, and push after each merge or step, and near the usage limit schedule a wakeup past the reset; complements /pause and /resume |
+| hoist-skill | `/(?:^\/hoist-skill\b)\|(?:hoist\|export\|copy\|add)\s+(?:scaffold\s+)?skills?\s+(?:to\|into)\b/i` | `skills/hoist-skill.md` | Hoist scaffold capabilities into a consumer repo in the target harness format |
+| protect-branch | `/(?:^\/protect-branch\b)\|(?:set\s+up\|configure\|check)\s+(?:branch\s+protection\|protected\s+branch)/i` | `skills/protect-branch.md` | Open GitHub branch protection settings for the current repo and show a targeted configuration checklist |
+| frontend-design | `/(?:^\/frontend-design\b)/i` | `skills/frontend-design.md` | Create distinctive, production-grade frontend interfaces that avoid generic AI aesthetics |
+| mind-meld | `/(?:^\/mind-meld\b)\|mind\s+meld\|(?:learning\s+IDE\|visual\s+code\s+walkthrough)/i` | `skills/mind-meld.md` | Build a repo-owned learning IDE from source indexes, real sandboxed runs and offline code-flow tours |
+| modern-web | `/(?:^\/modern-web\b)\|modern\s+web\s+(?:guidance\|best\s+practices?)\|web\s+platform\s+best\s+practices?/i` | `skills/modern-web.md` | Apply Chrome's Modern Web Guidance before writing or reviewing HTML/CSS/client-side JS — native plugin or package where the harness has one (Claude Code, agy, Codex, pi), else search → retrieve → verify via the npm CLI |
+| audit | `/(?:^\/audit\b)\|(?:score\|audit)\s+(?:the\s+)?(?:codebase\|repo\|source\s+files)/i` | `skills/audit.md` | Score source files ranked worst-first across all four rubric dimensions with cited violations |
+| add-linter | `/(?:^\/add-linter\b)\|(?:add\|set\s+up\|configure)\s+(?:a\s+)?linter/i` | `skills/add-linter.md` | Add linter configs and GitHub Actions workflows for languages detected in the current repo |
+| ponytail | `/(?:^\/ponytail\b)|lazy\s+senior\s+dev\s+mode/i` | `skills/ponytail.md` | Lazy-senior-dev generation mode — force the simplest working solution (YAGNI, stdlib first, no unrequested abstractions) |
+| diagram | `/(?:^\/diagram\b)|(?:diagram\s+this|draw\s+the\s+architecture|make\s+(?:a\s+)?mermaid|render\s+(?:this\s+)?mermaid|sequence\s+diagram\s+for)/i` | `skills/diagram.md` | Generate or update a mermaid diagram as `.mmd` text-source-of-truth; defaults to a lightweight Node live-preview server that watches the .mmd (hot-reload, pan/zoom), with a self-hosted mermaid.live editor (Docker), system-viewer SVG, VS Code live preview, or public mermaid.live publish as alternatives |
+| council | `/(?:^\/council\b)|(?:council\|war[-\s]?room\|pressure[-\s]?test\|stress[-\s]?test\|debate)\s+(?:this\|it\|the)\b/i` | `skills/council.md` | Run a high-stakes decision through five persona-diverse advisors (parallel) → anonymized peer review → chairman synthesis of agreements, clashes, and next step |
+| statusline | `/(?:^\/statusline\b)\|(?:enable\|turn\s+on\|show)\s+(?:the\s+)?(?:usage\s+)?status[-\s]?line/i` | `skills/statusline.md` | Configure model, context, and usage status display: Codex uses its built-in statusline picker; Claude Code uses bin/install-statusline.sh. Turn the status line on or off without clobbering other settings. |
+| jev-typesafe | `/(?:^\/jev-typesafe\b)|(?:jev|typesafe|system\s*1|jev\s*evaluate|openrouter\s+jev)/i` | `skills/jev-typesafe.md` | Add Jev (System 1) judgments to pi via OpenRouter: install pi-typesafe, drop the jev-openrouter.ts extension, and route micro-decisions to typesafe/jev-1.13 through jev_evaluate |
+| queue | `/(?:^\/queue\b)|(?:work\|task)\s+queue\|drain\s+(?:the\s+)?queue/i` | `skills/queue.md` | Manage a visible, editable Markdown work queue that agents drain autonomously — serially or fanned out across parallel git worktrees, as direct chores or full feature-chain runs — with dependencies, retries, validation gating, and usage-limit pause/resume |
+| voice-chat | `/(?:^\/voice-chat\b)|(?:voice\s+chat\|voice\s+loop\|talk\s+to\s+(?:the\s+)?agent\|hands[-\s]?free\s+voice)/i` | `skills/voice-chat.md` | Hands-free voice chat via Claude Code or Codex CLI, whisper.cpp transcription, and local TTS (say, espeak, Piper, XTTS). Set up or run the headphones-only voice loop on macOS, Linux, or WSL. |
+| deslop | `/(?:^\/deslop\b)|(?:check|scan)\s+(?:this\s+)?for\s+(?:ai\s+)?slop|make\s+(?:this|it)\s+sound\s+(?:more\s+)?human/i` | `skills/deslop.md` | Rewrite user-facing prose in plain language that keeps the author's voice, and strip filler from engineering docs without losing any technical content; or list findings only |
+| upstream | `/(?:^\/upstream\b)|(?:upstream|codify|add|pr)\s+(?:this|it|that)\s+(?:to|in|into)\s+(?:the\s+)?scaffold|scaffold\s+pr\b.*sync\s+back/i` | `skills/upstream.md` | Move a generic change into scaffold via PR, merge on green CI, then sync scaffold back into this repo |
+| investigate | `/(?:^\/investigate\b)|(?:root[-\s]?cause|debug|investigate)\s+(?:this|the|a)\s+(?:bug|failure|error|crash|test)/i` | `skills/investigate.md` | Root-cause a bug or failing test before changing code — reproduce, compare, one hypothesis at a time, failing test first, stop after three failed fixes, evidence before any success claim |
+| qa | `/(?:^\/qa\b)|(?:qa|smoke[-\s]?test)\s+(?:this|the\s+(?:app|feature|change))|check\s+(?:that\s+)?it\s+actually\s+works/i` | `skills/qa.md` | Run the real app, drive the changed entry points like a user (browser, API, CLI, job), fix in-tier issues with a regression test each, re-verify, and report |
+| gmail-automation | `/(?:^\/gmail-automation\b)|gmail\s+(?:filter|label|tag|automation)s?|(?:auto[-\s]?(?:tag|label)|filter)\s+(?:my\s+)?(?:e-?mails?|inbox)/i` | `skills/gmail-automation.md` | Automate Gmail tasks, filter setup, email tagging, and programmatic inbox management without using the desktop web interface. Use when the user wants to set up filters, apply tags, or process emails via API, scripts, or agentic commands. |
+| retro | `/(?:^\/retro\b)/i` | `skills/retro.md` | Use only when the user requests a session retrospective to identify evidence-backed improvements to agent tooling, checks, navigation, and steering; present proposals before changes |
+
+## Column contract
+
+- **Skill** — slug; MUST equal the directory name under `.claude/skills/` and
+  the file name under `skills/`.
+- **Invocation Regex** — primary trigger wrapped in backticks. Pipe characters
+  inside the backtick span are treated as regex alternation, not column
+  separators — write `|` freely. The legacy `\|` escape still compiles
+  correctly for backwards compatibility. Each regex MUST begin with a unique
+  `^\/<slug>` slash-command anchor — that anchor is the deterministic routing
+  key the validator checks for collisions.
+- **Path** — the canonical `skills/<slug>.md`. MUST exist on disk and MUST be
+  listed in `.github/scaffold-files.txt`. Harness-specific wrappers
+  (`.claude/skills/<slug>/SKILL.md`, `.cursor/rules/<slug>.mdc`,
+  `.agents/skills/<slug>/SKILL.md`, `.agent/workflows/<slug>.md`) `@`-include
+  this file — edit here, not in the wrappers.
+- **Purpose** — one operational sentence. Two skills with near-identical
+  purpose fail the MECE check and must be merged via parameterized args.
+
+## Bundled skills
+
+Self-contained Anthropic Agent Skills vendored from upstream — they own their
+`SKILL.md` (with its own frontmatter) plus bundled scripts/data/references, and
+ship as a single `.claude/skills/<slug>/` tree. Registered here so they are not
+flagged as orphaned and are covered by the manifest, but **exempt** from the
+prompt-skill wrapper contract: no canonical `skills/<slug>.md`, no
+required cross-harness wrappers, no Invocation Regex (the skill's own
+`description` drives loading). The bundled `improve` skill also has a Codex-compatible
+`.agents/skills/improve/SKILL.md` bridge to its unchanged source tree.
+
+| Skill | Source (license) | Purpose |
+|---|---|---|
+| improve | github.com/shadcn/improve (MIT) | Survey a codebase as a read-only senior advisor and produce prioritized, self-contained implementation plans for other agents to execute |

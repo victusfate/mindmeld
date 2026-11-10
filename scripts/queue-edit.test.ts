@@ -1,0 +1,71 @@
+#!/usr/bin/env node
+// Exercise persisted CLI edits and task lifecycle commands against queue.md.
+import { strict as assert } from 'node:assert';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
+import { parseQueue } from './queue-model.ts';
+import { humanEnv } from './queue-task-origin.ts';
+
+const dir = mkdtempSync(join(tmpdir(), 'queue-edit-'));
+const file = join(dir, 'queue.md');
+const cli = fileURLToPath(new URL('./queue.ts', import.meta.url));
+const run = (...args: string[]) => spawnSync(process.execPath, [cli, ...args], {
+  env: { ...humanEnv(), QUEUE_FILE: file }, encoding: 'utf8',
+});
+try {
+  assert.equal(run('add', 'Old instructions').status, 0);
+  assert.equal(run('set', 'task-001', 'title', 'Current instructions').status, 0);
+  assert.equal(run('set', 'task-001', 'note', 'Evidence reviewed').status, 0);
+  const saved = readFileSync(file, 'utf8');
+  const task = parseQueue(saved).tasks[0];
+  assert.equal(task.title, 'Current instructions');
+  assert.equal(task.note, 'Evidence reviewed');
+  assert.equal(task.status, 'pending');
+  for (const [field, value] of [['title', ' '], ['typo', 'ignored']]) {
+    assert.notEqual(run('set', 'task-001', field, value).status, 0);
+    assert.equal(readFileSync(file, 'utf8'), saved);
+  }
+  // Non-numeric config for a numeric key is rejected, not persisted as NaN.
+  for (const bad of ['abc', '0', '-1']) {
+    assert.notEqual(run('config', 'maxParallel', bad).status, 0);
+    assert.equal(readFileSync(file, 'utf8'), saved);
+  }
+  assert.equal(run('config', 'maxParallel', '4').status, 0);
+  assert.equal(parseQueue(readFileSync(file, 'utf8')).config.maxParallel, 4);
+  // Restore so the saved-snapshot assertions below still hold.
+  assert.equal(run('config', 'maxParallel', '1').status, 0);
+  assert.equal(readFileSync(file, 'utf8'), saved);
+  assert.equal(run('add', 'Gate task').status, 0);
+  const beforeGate = readFileSync(file, 'utf8');
+  assert.equal(run('gate', 'task-002', '--dry-run').status, 0);
+  assert.equal(readFileSync(file, 'utf8'), beforeGate);
+  assert.equal(run('gate', 'task-002').status, 0);
+  assert.deepEqual(parseQueue(readFileSync(file, 'utf8')).tasks[0].dependsOn, ['task-002']);
+  const gated = readFileSync(file, 'utf8');
+  assert.equal(run('ungate', 'task-002', '--dry-run').status, 0);
+  assert.equal(readFileSync(file, 'utf8'), gated);
+  assert.equal(run('ungate', 'task-002', '--keep-gate').status, 0);
+  const ungated = parseQueue(readFileSync(file, 'utf8'));
+  assert.deepEqual(ungated.tasks[0].dependsOn, []);
+  assert.equal(ungated.tasks[1].status, 'pending');
+  assert.equal(run('ungate', 'task-002').status, 0);
+  assert.equal(parseQueue(readFileSync(file, 'utf8')).tasks[1].status, 'done');
+  assert.equal(run('claim', 'task-001', '--worker', '/root/worker-a').status, 0);
+  const claimed = readFileSync(file, 'utf8');
+  for (const args of [[], ['--worker', '/root/worker-b']]) {
+    assert.notEqual(run('release', 'task-001', ...args).status, 0);
+    assert.equal(readFileSync(file, 'utf8'), claimed);
+  }
+  assert.equal(run('release', 'task-001', '--worker', '/root/worker-a').status, 0);
+  const released = parseQueue(readFileSync(file, 'utf8')).tasks[0];
+  assert.equal(released.status, 'pending');
+  assert.equal(released.owner, null);
+  assert.equal(released.failures, 0);
+  assert.notEqual(run('release', 'task-001', '--worker', '/root/worker-a').status, 0);
+  console.log('queue-edit: persisted edits, gate lifecycle, and owned release PASS');
+} finally {
+  rmSync(dir, { recursive: true, force: true });
+}

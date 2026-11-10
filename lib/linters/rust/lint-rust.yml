@@ -1,0 +1,18 @@
+# scaffold-linter: rust
+name: Lint Rust
+
+on:
+  pull_request:
+    paths:
+      - '**/*.rs'
+
+jobs:
+  clippy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+      - run: cargo fmt --all -- --check
+      - run: cargo clippy --all-targets --all-features -- -W clippy::pedantic -W clippy::nursery -D warnings

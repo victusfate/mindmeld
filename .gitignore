@@ -1,0 +1,31 @@
+node_modules/
+dist/
+build/
+coverage/
+
+*.lock
+*.min.js
+
+.DS_Store
+.env
+.env.local
+.claude/settings.local.json
+
+# Work-queue runtime sidecars (the visible queue.md is tracked; these are not)
+.agent/queue/log.md
+.agent/queue/archive.md
+.agent/queue/wt/
+.agent/queue/lanes/
+.agent/queue/loop-state.json
+.agent/queue/queue.db*
+.agent/rigor.jsonl
+
+# Local editor prefs & personal scratch diagrams (not part of scaffold)
+.vscode/
+diagrams/
+
+# Pinned security scanners (scripts/setup-security-tools.sh) — machine-local, never committed
+.tooling/
+
+# Subagent git worktrees (Claude Code isolation: worktree); local only, never committed.
+.claude/worktrees/

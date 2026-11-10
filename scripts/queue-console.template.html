@@ -1,0 +1,893 @@
+<!doctype html>
+<!-- queue-console.template.html — the console page, served verbatim at GET /.
+     Single file, inline CSS/JS, no external assets (design.md D4/D9). All
+     mutations POST typed ops to /api/op; the page never edits queue text.
+     quality-ok: file-length — single-file-by-design (offline tool: splitting
+     would introduce asset requests); columns/cards/header are sectioned. -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>Queue Console</title>
+<script>
+// Theme before first paint. The OS setting is the default; a stored choice
+// (the toggle's pin) overrides it. Inline and blocking so there is no flash
+// and no request — the page stays fully asset-free.
+try {
+  const pinned = localStorage.getItem("qc-theme");
+  if (pinned === "light" || pinned === "dark") {
+    document.documentElement.dataset.theme = pinned;
+    document.querySelector('meta[name="color-scheme"]').content = pinned;
+  }
+} catch (e) { /* storage blocked: follow the OS */ }
+</script>
+<style>
+  /* Flight-strip board: every task is a strip slotted into a bay, the way a
+     controller's board holds flights. Strips are paper-light in both themes
+     (tinted by status); the board around them follows the OS scheme. */
+  :root {
+    color-scheme: light dark; view-transition-name: none; accent-color: var(--accent);
+    --page: #dfe3e7; --col-bg: #c9cfd5; --col-edge: #adb5bd; --panel: #f4f6f8;
+    --ink: #16202a; --muted: #56616d; --line: #b3bbc3;
+    --accent: #1f5fae; --on-accent: #ffffff; --ok: #1e7a3a; --warn: #8a5a00; --bad: #b3261e; --on-bad: #ffffff;
+    --tint-queued: #d8e5f3; --tint-blocked: #f0dfae; --tint-active: #cfe8cc;
+    --tint-done: #dfe2e5; --tint-failed: #f3d0cd;
+  }
+  /* Dark tokens, twice: once for the OS preference (unless the light theme is
+     pinned) and once for an explicit dark pin. Media queries rather than
+     light-dark() so every browser gets the right board (guide fallback). */
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --page: #13191f; --col-bg: #1d252d; --col-edge: #2f3a44; --panel: #212a33;
+      --ink: #e3e8ec; --muted: #95a2ae; --line: #3a4652;
+      --accent: #86b7f2; --on-accent: #0c1a2a; --ok: #7fd18f; --warn: #f0c060; --bad: #ff8a80; --on-bad: #2a0b08;
+      --tint-queued: #c3d4e6; --tint-blocked: #dcca92; --tint-active: #bbd8b7;
+      --tint-done: #b8bec4; --tint-failed: #e3bab6;
+    }
+  }
+  :root[data-theme="dark"] {
+    --page: #13191f; --col-bg: #1d252d; --col-edge: #2f3a44; --panel: #212a33;
+    --ink: #e3e8ec; --muted: #95a2ae; --line: #3a4652;
+    --accent: #86b7f2; --on-accent: #0c1a2a; --ok: #7fd18f; --warn: #f0c060; --bad: #ff8a80; --on-bad: #2a0b08;
+    --tint-queued: #c3d4e6; --tint-blocked: #dcca92; --tint-active: #bbd8b7;
+    --tint-done: #b8bec4; --tint-failed: #e3bab6;
+  }
+  :root[data-theme="light"] { color-scheme: light; }
+  :root[data-theme="dark"] { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0 auto; max-width: 92rem; padding: 0 1rem 3rem;
+    color: var(--ink); background: var(--page);
+    font: 15px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  button {
+    font: inherit; color: inherit; background: var(--panel);
+    border: 1px solid var(--line); border-radius: 6px;
+    padding: 0.28rem 0.7rem; cursor: pointer;
+  }
+  button:hover { border-color: var(--accent); }
+  button.primary { background: var(--accent); color: var(--on-accent); border-color: var(--accent); font-weight: 600; }
+  button.danger { background: var(--bad); color: var(--on-bad); border-color: var(--bad); font-weight: 600; }
+  input, select, textarea {
+    font: inherit; color: inherit; background: var(--panel);
+    border: 1px solid var(--line); border-radius: 6px; padding: 0.28rem 0.55rem;
+  }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  /* -- header -- */
+  #status {
+    position: sticky; top: 0; z-index: 20;
+    display: flex; flex-wrap: wrap; gap: 0.5rem 1rem; align-items: center;
+    background: var(--page); border-bottom: 1px solid var(--line);
+    padding: 0.75rem 0.1rem; margin-bottom: 1rem;
+  }
+  h1 { font-size: 1.1rem; font-weight: 650; margin: 0; }
+  .pill { display: inline-flex; align-items: center; gap: 0.4rem; font-weight: 600; font-size: 0.9rem; }
+  .pill::before { content: ""; width: 0.6em; height: 0.6em; border-radius: 50%; background: currentColor; }
+  .pill.running { color: var(--ok); }
+  .pill.stopped { color: var(--bad); }
+  .pill.paused  { color: var(--warn); }
+  .counts { color: var(--muted); font-size: 0.9rem; font-variant-numeric: tabular-nums; }
+  .controls { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; margin-left: auto; }
+  #status label { color: var(--muted); font-size: 0.88rem; display: inline-flex; align-items: center; gap: 0.35rem; }
+  #status input { width: 4.2rem; padding: 0.15rem 0.45rem; }
+  #drain { color: var(--warn); font-weight: 650; font-size: 0.88rem; flex-basis: 100%; }
+  #plan { color: var(--muted); font-size: 0.88rem; flex-basis: 100%; }
+  #host-status { flex-basis: 100%; color: var(--muted); font-size: 0.84rem; }
+  #host-status strong { color: var(--ink); }
+  #host-status ul { display: inline-flex; flex-wrap: wrap; gap: 0.25rem 0.9rem; list-style: none; margin: 0 0 0 0.6rem; padding: 0; }
+  #host-status li { font-variant-numeric: tabular-nums; }
+  #host-status .guard-clear { color: var(--ok); }
+  #host-status .guard-warn { color: var(--warn); }
+  #host-status .guard-blocked { color: var(--bad); font-weight: 650; }
+  #stale {
+    display: none; margin: 0 0 0.9rem; padding: 0.55rem 0.85rem; border-radius: 6px;
+    border: 1px solid var(--warn); background: var(--panel);
+  }
+  /* -- error toast: a manual popover, so it survives clicks elsewhere -- */
+  #error {
+    position: fixed; inset: auto 1rem 1rem auto; margin: 0; max-width: min(28rem, calc(100vw - 2rem));
+    display: none; gap: 0.75rem; align-items: start;
+    padding: 0.7rem 0.8rem 0.7rem 1rem; border-radius: 6px;
+    color: var(--ink); background: var(--panel);
+    border: 1px solid var(--line); border-left: 4px solid var(--bad);
+    box-shadow: 0 6px 24px rgb(0 0 0 / 0.25);
+    opacity: 0; translate: 0 0.5rem;
+    transition: opacity 0.18s, translate 0.18s, display 0.18s allow-discrete, overlay 0.18s allow-discrete;
+  }
+  #error:popover-open, #error.open { display: flex; opacity: 1; translate: 0 0; }
+  @starting-style { #error:popover-open { opacity: 0; translate: 0 0.5rem; } }
+  #error p { margin: 0; flex: 1; }
+  #error button { padding: 0 0.45rem; }
+  /* -- remove confirmation -- */
+  dialog {
+    border: 1px solid var(--line); border-radius: 8px; padding: 1.1rem 1.2rem;
+    color: var(--ink); background: var(--panel); max-width: min(26rem, calc(100vw - 2rem));
+  }
+  dialog::backdrop { background: rgb(10 15 20 / 0.45); }
+  dialog h2 { margin: 0 0 0.4rem; font-size: 1.05rem; }
+  dialog p { margin: 0 0 1rem; color: var(--muted); }
+  dialog .buttons { display: flex; justify-content: flex-end; gap: 0.5rem; }
+  /* -- task controls -- */
+  #task-tools {
+    display: grid; grid-template-columns: minmax(0, 2fr) minmax(16rem, 1fr);
+    gap: 0.8rem; align-items: start; margin: 0 0 1.1rem;
+  }
+  #add { margin: 0; }
+  #add .row { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; }
+  #add input[name=title] { flex: 1 1 16rem; padding: 0.45rem 0.7rem; }
+  #add .row label { color: var(--muted); display: inline-flex; gap: 0.3rem; align-items: center; }
+  #add details { margin-top: 0.4rem; }
+  #add summary { color: var(--muted); cursor: pointer; font-size: 0.88rem; width: max-content; }
+  #filter { display: grid; gap: 0.3rem; }
+  #filter label { color: var(--muted); font-size: 0.85rem; }
+  #filter .row { display: flex; gap: 0.4rem; }
+  #task-filter { min-width: 0; flex: 1; }
+  #filter-count { color: var(--muted); font-size: 0.8rem; min-height: 1.2em; }
+  .grid {
+    display: grid; grid-template-columns: auto 1fr; gap: 0.35rem 0.6rem;
+    margin-top: 0.5rem; align-items: center; max-width: 40rem;
+  }
+  .grid label { color: var(--muted); text-align: right; font-size: 0.85rem; }
+  /* -- board: bays of strips -- */
+  #tasks { list-style: none; margin: 0; padding: 0; }
+  #tasks.cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr)); gap: 0.6rem; align-items: start; }
+  #tasks li.col {
+    background: var(--col-bg); border: 1px solid var(--col-edge); border-radius: 8px;
+    padding: 0 0.45rem 0.45rem; min-height: 8rem;
+    /* Containment keeps a drag or re-render inside one bay from reflowing
+       the whole board (modern-web: interactions-in-complex-layouts). */
+    content-visibility: auto; contain-intrinsic-size: auto 15rem auto 24rem;
+  }
+  #tasks li.col > h2 {
+    display: flex; align-items: baseline; justify-content: space-between;
+    font-size: 0.92rem; font-weight: 650; margin: 0 -0.45rem 0.5rem; padding: 0.55rem 0.7rem 0.45rem;
+    border-bottom: 3px solid var(--col-tint);
+  }
+  #tasks li.col > h2 .n { color: var(--muted); font-weight: 500; font-variant-numeric: tabular-nums; }
+  #tasks li.col[data-col="Queued"] { --col-tint: var(--tint-queued); }
+  #tasks li.col[data-col="Blocked"] { --col-tint: var(--tint-blocked); }
+  #tasks li.col[data-col="In Progress"] { --col-tint: var(--tint-active); }
+  #tasks li.col[data-col="Done"] { --col-tint: var(--tint-done); }
+  #tasks li.col[data-col="Failed"] { --col-tint: var(--tint-failed); }
+  .cards { list-style: none; margin: 0; padding: 0; min-height: 2.5rem; border-radius: 4px; }
+  body.dragging .cards { outline: 1px dashed var(--col-edge); outline-offset: 2px; }
+  body.dragging .cards:has(.dragover) { outline: 2px solid var(--accent); }
+  /* A strip: paper-light in both themes, so it carries its own light scheme
+     and ink; the tint says which bay it sits in. */
+  .cards li.card {
+    color-scheme: light; --ink: #16202a; --muted: #4c5763; --line: rgb(22 32 42 / 0.22);
+    --panel: rgb(255 255 255 / 0.6); --field: #ffffff; --accent: #1f5fae; --ok: #1e6b35; --warn: #7a4f00; --bad: #a3231b;
+    color: var(--ink); background: var(--col-tint);
+    border-radius: 3px; margin-bottom: 0.35rem;
+    box-shadow: 0 1px 0 rgb(0 0 0 / 0.22), inset 0 0 0 1px rgb(22 32 42 / 0.12);
+    cursor: grab; view-transition-class: card;
+  }
+  .cards li.card:active { cursor: grabbing; }
+  .cards li.card.dragover { outline: 2px dashed var(--accent); outline-offset: 1px; }
+  .cards li.card.selected { outline: 3px solid var(--accent); outline-offset: 1px; }
+  .cards li.card.stale { opacity: 0.6; }
+  .cards li.slot {
+    border: 1px dashed var(--col-edge); border-radius: 3px; color: var(--muted);
+    padding: 0.7rem; margin-bottom: 0.35rem; font-size: 0.85rem; text-align: center;
+  }
+  .task-line {
+    display: grid; grid-template-columns: 4.4rem 1fr; min-height: 3.6rem;
+    user-select: none; -webkit-user-select: none;
+  }
+  .editor, .editor input, .editor select { user-select: text; -webkit-user-select: text; cursor: auto; }
+  .architecture-help { grid-column: 2; color: var(--muted); line-height: 1.4; }
+  /* The callsign cell: status glyph over the task id, ruled off like the
+     first box of a flight strip. */
+  .callsign {
+    display: flex; flex-direction: column; justify-content: center; gap: 0.1rem;
+    padding: 0.4rem 0.5rem; border-right: 1px solid var(--line);
+  }
+  .tid { display: flex; flex-direction: column; line-height: 1.1; white-space: nowrap; }
+  .tid small { font-size: 0.7rem; color: var(--muted); }
+  .tid b { font: 700 1.15rem/1.1 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-variant-numeric: tabular-nums; letter-spacing: -0.02em; }
+  .badge { font-weight: 700; font-size: 0.9rem; line-height: 1; }
+  .badge.pending { color: var(--muted); }
+  .badge.active  { color: var(--ok); animation: lamp 2.2s ease-in-out infinite; }
+  .badge.done    { color: var(--muted); }
+  .badge.failed  { color: var(--bad); }
+  @keyframes lamp { 50% { opacity: 0.4; } }
+  .card-body { padding: 0.4rem 0.5rem 0.4rem 0.6rem; display: flex; flex-direction: column; gap: 0.3rem; min-width: 0; }
+  .title { font-weight: 600; overflow-wrap: anywhere; line-height: 1.3; }
+  .meta { display: flex; flex-wrap: wrap; gap: 0.25rem 0.3rem; align-items: center; }
+  .chip {
+    border: 1px solid var(--line); border-radius: 3px; padding: 0 0.35rem;
+    font-size: 0.74rem; color: var(--muted); white-space: nowrap;
+  }
+  .chip.ready { color: var(--ok); border-color: currentColor; }
+  .chip.note { color: var(--warn); border-color: currentColor; white-space: normal; }
+  .chip.deadlocked { color: var(--bad); border-color: currentColor; white-space: normal; }
+  .chip.stop { color: var(--bad); border-color: currentColor; }
+  .actions { display: flex; gap: 0.2rem; margin-left: auto; }
+  .actions button { padding: 0 0.4rem; font-size: 0.82rem; line-height: 1.6; border-radius: 3px; }
+  @media (hover: hover) {
+    .actions { opacity: 0.35; }
+    .card:hover .actions, .card:focus-within .actions { opacity: 1; }
+  }
+  .editor { grid-column: 1 / -1; border-top: 1px solid var(--line); padding: 0.3rem 0.5rem 0.5rem; margin-top: 0; }
+  /* Each bay is narrow, so labels and explanations must not squeeze controls. */
+  .editor.grid { grid-template-columns: minmax(0, 1fr); }
+  .editor label { text-align: left; }
+  .editor .architecture-help { grid-column: 1; }
+  .editor input, .editor select { background: var(--field); width: 100%; min-width: 0; }
+  .editor .buttons { grid-column: 1; display: flex; gap: 0.5rem; margin-top: 0.3rem; }
+  .empty { color: var(--muted); padding: 2.5rem 1rem; text-align: center; }
+  /* Moving a strip between bays slides it rather than jumping (view
+     transitions; browsers without them just re-render in place). */
+  ::view-transition { pointer-events: none; }
+  ::view-transition-group(.card) { animation-duration: 0.22s; animation-timing-function: ease-out; }
+  @media (prefers-reduced-motion: reduce) {
+    .badge.active { animation: none; }
+    #error { transition: none; }
+    ::view-transition-group(*), ::view-transition-old(*), ::view-transition-new(*) { animation: none !important; }
+  }
+  @media (max-width: 48rem) { #task-tools { grid-template-columns: 1fr; } }
+  @media (pointer: coarse) { #filter input, #filter button { min-height: 3rem; } }
+</style>
+</head>
+<body>
+<header id="status"></header>
+<div id="stale">The queue changed on disk while you were editing. <button id="refresh">Load changes</button></div>
+<div id="error" popover="manual" role="alert"><p id="error-msg"></p><button type="button" id="error-close" aria-label="Dismiss error">✕</button></div>
+<dialog id="confirm-remove" closedby="any" aria-labelledby="confirm-title">
+  <form method="dialog">
+    <h2 id="confirm-title">Remove task?</h2>
+    <p id="confirm-body"></p>
+    <div class="buttons">
+      <button value="cancel">Keep it</button>
+      <button value="remove" class="danger">Remove task</button>
+    </div>
+  </form>
+</dialog>
+
+<section id="task-tools" aria-label="Task controls">
+  <form id="add">
+    <div class="row">
+      <input name="title" placeholder="Describe a new task" aria-label="New task title" autocomplete="off">
+      <label><input type="checkbox" name="top"> Put first</label>
+      <button class="primary" type="submit">Add task</button>
+    </div>
+    <details>
+      <summary>More fields</summary>
+      <div class="grid">
+        <label>mode</label><select name="mode"><option>direct</option><option>chain</option></select>
+        <label for="add-architecture">Architectural contribution</label><select id="add-architecture" name="architecture" aria-describedby="add-architecture-help"></select>
+        <small class="architecture-help" id="add-architecture-help"></small>
+        <label>slug</label><input name="slug" placeholder="docs/&lt;slug&gt;/">
+        <label>deps</label><input name="deps" placeholder="task-001, task-002">
+        <label>files</label><input name="files" placeholder="src/a.ts, test/a.test.ts">
+        <label for="add-contracts">contracts</label><input id="add-contracts" name="contracts" placeholder="src/schema.ts, test/compat.test.ts">
+        <label>validate</label><input name="validate" placeholder="npm test">
+        <label>accept</label><input name="accept" placeholder="checkable end state">
+      </div>
+    </details>
+  </form>
+  <form id="filter" role="search">
+    <label for="task-filter">Filter tasks</label>
+    <div class="row">
+      <input id="task-filter" name="query" type="search" placeholder="ID, title, or task field"
+        autocomplete="off" enterkeyhint="search">
+      <button id="filter-clear" type="button">Clear</button>
+    </div>
+    <output id="filter-count" for="task-filter" aria-live="polite" aria-atomic="true"></output>
+  </form>
+</section>
+
+<ul id="tasks"></ul>
+
+<script>
+"use strict";
+const $ = (sel, el) => (el || document).querySelector(sel);
+const ERROR_HIDE_MS = 6000;
+const HOST_REFRESH_MS = 5000;
+let S = null;          // last ConsoleState
+let L = [];           // last lane views from /api/lanes
+let H = null;          // last host snapshot from /api/host
+let editingId = null;  // task id whose editor is open (or "add" while typing)
+let draggingId = null;
+let armedId = null;   // click-to-move selection (touch/mouse fallback when drags fail)
+let lastDrop = 0;     // timestamp of the last drop — clicks right after one belong to the drag
+
+const laneById = id => L.find(l => l.id === id);
+
+// Two-state theme toggle (modern-web: dark-mode). The OS scheme is the
+// default; the toggle pins the opposite, and toggling back to what the OS
+// shows clears the pin so the page follows the OS again.
+const osDark = matchMedia("(prefers-color-scheme: dark)");
+const systemTheme = () => (osDark.matches ? "dark" : "light");
+const theme = () => document.documentElement.dataset.theme || systemTheme();
+function setTheme(next) {
+  const root = document.documentElement;
+  const meta = $('meta[name="color-scheme"]');
+  const system = systemTheme();
+  try {
+    if (next === system) localStorage.removeItem("qc-theme");
+    else localStorage.setItem("qc-theme", next);
+  } catch (e) { /* private mode: the choice lasts this page only */ }
+  if (next === system) { delete root.dataset.theme; meta.content = "light dark"; }
+  else { root.dataset.theme = next; meta.content = next; }
+  renderStatus();
+}
+osDark.addEventListener("change", () => { if (S) renderStatus(); });
+
+const busy = () => editingId !== null || draggingId !== null;
+const esc = s => String(s ?? "").replace(/[&<>"']/g,
+  c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+
+async function refreshHost() {
+  try {
+    const response = await fetch("/api/host");
+    H = await response.json();
+    if (!response.ok) H.error = H.error || "Host resources unavailable";
+  } catch (error) {
+    H = { error: error instanceof Error ? error.message : String(error) };
+  }
+  renderHostStatus();
+}
+
+async function refresh() {
+  const [queue, lanes] = await Promise.all([fetch("/api/queue"), fetch("/api/lanes")]);
+  S = await queue.json();
+  const dial = $("#add-architecture");
+  if (!dial.options.length) dial.innerHTML = architectureOptions(S.defaultArchitecture);
+  updateArchitectureHelp(dial, $("#add-architecture-help"));
+  L = (await lanes.json()).lanes;
+  render();
+  void refreshHost();
+}
+
+async function post(op) {
+  const res = await fetch("/api/op", {
+    method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(op),
+  });
+  const body = await res.json();
+  if (!res.ok) { showError(body.error || "The queue rejected that change."); return false; }
+  S = body;
+  const lanes = await fetch("/api/lanes");
+  L = (await lanes.json()).lanes;
+  // Close the editor only when this op consumed or destroyed it — a save
+  // (set/add) or removing the edited row. Other ops keep it open, and
+  // render() carries the typed-but-unsaved values across the re-render.
+  if (op.op === "set" || op.op === "add" || (op.op === "remove" && op.id === editingId)) editingId = null;
+  render();
+  void refreshHost();
+  return true;
+}
+
+// Errors surface as a toast in the top layer (modern-web: persistent-toast-
+// notifications): a manual popover, so clicking elsewhere never dismisses it
+// early. Browsers without popover get the same box via the .open class.
+const hasPopover = "popover" in HTMLElement.prototype;
+function hideError() {
+  const el = $("#error");
+  if (hasPopover) { if (el.matches(":popover-open")) el.hidePopover(); }
+  else el.classList.remove("open");
+}
+function showError(msg) {
+  const el = $("#error");
+  $("#error-msg").textContent = msg;
+  if (hasPopover) { if (!el.matches(":popover-open")) el.showPopover(); }
+  else el.classList.add("open");
+  clearTimeout(showError.t);
+  showError.t = setTimeout(hideError, ERROR_HIDE_MS);
+}
+$("#error-close").onclick = hideError;
+
+// Removing a task asks first, in a native modal <dialog>: Esc, the back
+// gesture and a backdrop click all cancel (modern-web: platform-controls-
+// dismiss-dialog). Replaces the browser confirm prompt, which blocks the tab.
+function confirmRemove(t) {
+  const d = $("#confirm-remove");
+  $("#confirm-body").textContent = t.id + " (" + t.title + ") will be deleted from the queue.";
+  d.returnValue = "";
+  d.addEventListener("close", () => {
+    if (d.returnValue === "remove") post({ op: "remove", id: t.id });
+  }, { once: true });
+  d.showModal();
+}
+
+// ------------------------------------------------------------------ header
+
+const gib = bytes => (bytes / 1024 ** 3).toFixed(1) + " GiB";
+function hostStatusHtml(active) {
+  if (!H || H.error) {
+    return '<aside id="host-status" aria-live="off" aria-label="Host resources">'
+      + '<strong>Host:</strong> resources unavailable</aside>';
+  }
+  const cpu = H.cpu.available ? H.cpu.utilizationPercent + "% of " + H.cpu.cores + " cores" : "unavailable";
+  const disk = H.disk.available
+    ? gib(H.disk.availableBytes) + " free (floor " + gib(H.limits.diskFloorBytes) + ")" : "unavailable";
+  const gpu = H.gpu.available
+    ? esc(H.gpu.name) + " " + H.gpu.utilizationPercent + "% · VRAM "
+      + esc(gib(H.gpu.minimumFreeBytes)) + (H.gpu.deviceCount > 1 ? " minimum free" : " free") + " · "
+      + H.gpu.computeProcesses + " compute process" + (H.gpu.computeProcesses === 1 ? "" : "es")
+    : "unavailable";
+  const worktrees = H.worktrees.available
+    ? H.worktrees.activeCount + " active · " + gib(H.worktrees.totalBytes)
+    : H.worktrees.activeCount + " active · unavailable";
+  const worker = H.limits.workerLimit === null
+    ? "not configured"
+    : active + "/" + H.limits.workerLimit
+      + (active >= H.limits.workerLimit ? " (full)" : " (" + (H.limits.workerLimit - active) + " free)");
+  return '<aside id="host-status" aria-live="off" aria-label="Host resources"><strong>Host:</strong><ul role="list">'
+    + '<li class="guard-' + H.guard.overall + '">Resource guard ' + esc(H.guard.overall) + '</li>'
+    + '<li>CPU ' + esc(cpu) + '</li>'
+    + '<li>RAM ' + esc(gib(H.memory.availableBytes)) + ' available (reserve '
+      + esc(gib(H.limits.memoryReserveBytes)) + ')</li>'
+    + '<li>Disk ' + esc(disk) + '</li>'
+    + '<li>Worktrees ' + esc(worktrees) + '</li>'
+    + '<li>GPU ' + gpu + '</li>'
+    + '<li>Desired worker lanes ' + active + '/' + S.config.maxParallel + '</li>'
+    + '<li>Worker limit ' + esc(worker) + '</li>'
+    + '<li>Sampled <time datetime="' + esc(H.sampledAt) + '">' + esc(H.sampledAt) + '</time></li>'
+    + '</ul></aside>';
+}
+
+function renderHostStatus() {
+  if (!S) return;
+  const current = $("#host-status");
+  if (current) current.outerHTML = hostStatusHtml(S.tasks.filter(t => t.status === "active").length);
+}
+
+function renderStatus() {
+  const c = S.config;
+  const paused = c.status === "stopped" && c.resumeAt;
+  const cls = paused ? "paused" : c.status;
+  const label = paused ? "Paused until " + c.resumeAt : c.status === "running" ? "Running" : "Stopped";
+  const n = s => S.tasks.filter(t => t.status === s).length;
+  const active = S.tasks.filter(t => t.status === "active").map(t => t.id);
+  const slots = Math.max(0, S.config.maxParallel - active.length);
+  const next = S.tasks.filter(t => t.status === "pending" && t.eligible).slice(0, slots).map(t => t.id);
+  const plan = (active.length || next.length)
+    ? '<span id="plan">Continuing ' + esc(active.length ? active.join(", ") : "nothing")
+      + '. Next up: ' + esc(next.length ? next.join(", ") : "nothing") + '.</span>' : '';
+  const dark = theme() === "dark";
+  $("#status").innerHTML =
+    '<h1>Queue console</h1>' +
+    '<span class="pill ' + cls + '">' + esc(label) + '</span>' +
+    '<span class="counts">' + n("pending") + ' pending, ' + n("active") + ' active, '
+      + n("done") + ' done, ' + n("failed") + ' failed</span>' +
+    '<div class="controls">' +
+    '<label>Check every <input id="cfg-interval" value="' + esc(c.interval) + '"></label>' +
+    '<label>Lanes <input id="cfg-parallel" type="number" min="1" value="' + c.maxParallel + '"></label>' +
+    '<button id="toggle">' + (c.status === "running" ? "Stop queue" : "Start queue") + '</button>' +
+    '<button id="reassign" title="Recompute which tasks run next from the current order">Reassign</button>' +
+    '<button id="sweep" title="Move done and failed tasks to the archive">Archive finished</button>' +
+    '<button id="theme" aria-label="Switch to ' + (dark ? "light" : "dark") + ' theme">'
+      + (dark ? "☀" : "☾") + '</button>' +
+    '</div>' +
+    hostStatusHtml(active.length) +
+    (S.drain ? '<span id="drain">' + esc(S.drain) + '</span>' : '') +
+    plan;
+  $("#toggle").onclick = () =>
+    post(S.config.status === "running" ? { op: "stop" } : { op: "start" });
+  $("#theme").onclick = () => setTheme(theme() === "dark" ? "light" : "dark");
+  $("#reassign").onclick = () => post({ op: "reassign" });
+  $("#sweep").onclick = () => post({ op: "archive" });
+  $("#cfg-interval").onchange = e => post({ op: "config", key: "interval", value: e.target.value });
+  $("#cfg-parallel").onchange = e => post({ op: "config", key: "maxParallel", value: e.target.value });
+}
+
+// ------------------------------------------------------------------ tasks
+
+const BADGE = { pending: "·", active: "▶", done: "✓", failed: "✗" };
+
+// Quick-scan claim wall time, including idle time: seconds under a minute,
+// whole minutes above. Active cards fold in the live session (client clock —
+// same machine as the loopback server, so no skew worth worrying about).
+function fmtDur(s) {
+  s = Math.max(0, Math.round(s));
+  return s < 60 ? s + "s" : Math.floor(s / 60) + "m";
+}
+function elapsedChip(t) {
+  let total = t.elapsedSecs || 0, live = 0;
+  if (t.status === "active" && t.startedAt) {
+    live = Math.max(0, Math.round((Date.now() - Date.parse(t.startedAt)) / 60000));
+    total += live * 60;
+  }
+  if (!total) return "";
+  return '<span class="chip" title="' + (live ? "cumulative claim wall time including current claim and idle time" : "cumulative claim wall time including idle time")
+    + '">⏱ ' + fmtDur(total) + '</span>';
+}
+
+function chips(t) {
+  const out = [];
+  if (t.mode === "chain") out.push('<span class="chip">chain</span>');
+  if (t.held) out.push('<span class="chip">held</span>');
+  const elapsed = elapsedChip(t);
+  if (elapsed) out.push(elapsed);
+  if (t.dependsOn.length) out.push('<span class="chip">after ' + esc(t.dependsOn.join(", ")) + '</span>');
+  if (t.failures) out.push('<span class="chip">retries: ' + t.failures + '</span>');
+  if (t.owner) out.push('<span class="chip">@' + esc(t.owner) + '</span>');
+  const lane = t.status === "active" ? laneById(t.id) : null;
+  if (lane) {
+    if (lane.step) out.push('<span class="chip">' + esc(lane.step) + '</span>');
+    if (lane.tail) out.push('<span class="chip" title="' + esc(lane.tail) + '">log</span>');
+    if (lane.stale) out.push('<span class="chip deadlocked">stale</span>');
+    if (lane.stop) out.push('<span class="chip stop">stop requested</span>');
+  } else if (t.status === "active" && t.startedAt) {
+    out.push('<span class="chip">since ' + esc(t.startedAt.slice(11, 16)) + '</span>');
+  }
+  if (t.note) out.push('<span class="chip note">' + esc(t.note) + '</span>');
+  if (t.deadlocked) out.push('<span class="chip deadlocked">blocked by failed dep</span>');
+  else if (t.eligible) out.push('<span class="chip ready">ready</span>');
+  return out.join("");
+}
+
+function architectureOptions(selected) {
+  return S.architectureModes.map(mode => '<option value="' + esc(mode) + '"' + (mode === selected ? ' selected' : '') + '>'
+    + esc(mode.charAt(0).toUpperCase() + mode.slice(1).replaceAll("-", " ")) + '</option>').join("");
+}
+
+function updateArchitectureHelp(select, help) {
+  help.textContent = S.architectureGuidance[select.value];
+}
+
+function editorHtml(t) {
+  const f = (label, name, value, ph) =>
+    '<label>' + label + '</label><input name="' + name + '" value="' + esc(value ?? "") + '"'
+      + (ph ? ' placeholder="' + ph + '"' : "") + '>';
+  return '<form class="editor grid">'
+    + f("title", "title", t.title)
+    + '<label>mode</label><select name="mode"><option'
+      + (t.mode === "direct" ? " selected" : "") + '>direct</option><option'
+      + (t.mode === "chain" ? " selected" : "") + '>chain</option></select>'
+    + '<label for="edit-architecture">Architectural contribution</label><select id="edit-architecture" name="architecture" aria-describedby="edit-architecture-help">'
+      + architectureOptions(t.architecture) + '</select><small class="architecture-help" id="edit-architecture-help"></small>'
+    + f("slug", "slug", t.slug)
+    + f("deps", "deps", t.dependsOn.join(", "), "task-001, task-002")
+    + f("files", "files", t.files.join(", "))
+    + f("contracts", "contracts", t.contracts.join(", "))
+    + f("validate", "validate", t.validate)
+    + f("accept", "accept", t.accept)
+    + f("note", "note", t.note)
+    + '<div class="buttons"><button class="primary" type="submit">Save</button>'
+    + '<button type="button" data-cancel>Cancel</button></div></form>';
+}
+
+// "task-014" → small "task-" over a large "014"; any other id shape is
+// shown whole, so a renamed prefix never breaks the strip.
+function tidHtml(id) {
+  const m = /^(.*?)(\d+)$/.exec(id);
+  return '<span class="tid">'
+    + (m && m[1] ? '<small>' + esc(m[1]) + '</small><b>' + m[2] + '</b>' : '<b>' + esc(id) + '</b>')
+    + '</span>';
+}
+
+function taskHtml(t) {
+  // Never offer requeue on an active task — resetting a live claim would let
+  // two workers run it at once (the model refuses too; this hides the trap).
+  const canRequeue = t.status === "failed" || (t.failures > 0 && t.status !== "active");
+  // Icon-only controls carry an aria-label: a title alone is not a reliable
+  // accessible name, and the glyphs mean nothing when read aloud.
+  const act = (name, glyph, label) =>
+    '<button data-act="' + name + '" aria-label="' + label + ' ' + t.id + '" title="' + label + '">' + glyph + '</button>';
+  return '<div class="task-line">'
+    + '<div class="callsign"><span class="badge ' + t.status + '" aria-hidden="true">' + BADGE[t.status] + '</span>'
+    + tidHtml(t.id) + '</div>'
+    + '<div class="card-body"><span class="title">' + esc(t.title) + '</span>'
+    + '<div class="meta">' + chips(t)
+    + '<span class="actions">'
+    + act("top", "⤒", "Move to top")
+    + (t.status === "active" ? act("stop-lane", "■", "Ask the lane to stop") : "")
+    + (canRequeue ? act("requeue", "↻", "Reset to pending") : "")
+    + act("edit", "✎", "Edit")
+    + act("remove", "✕", "Remove")
+    + '</span></div></div>'
+    + (editingId === t.id ? editorHtml(t) : "")
+    + '</div>';
+}
+
+function taskSearchText(t) {
+  return [
+    t.id, t.title, t.mode, t.architecture, t.slug, t.validate, t.accept, t.note, t.owner, t.branch, t.worktree,
+    ...t.dependsOn, ...t.files,
+  ].filter(value => value !== null && value !== undefined).join(" ").toLocaleLowerCase();
+}
+
+function taskMatchesFilter(t, query) {
+  return !query || taskSearchText(t).includes(query);
+}
+
+function updateFilterCount(shown, query) {
+  const total = S.tasks.length;
+  $("#filter-count").textContent = query
+    ? shown + " of " + total + " tasks match"
+    : total + " task" + (total === 1 ? "" : "s");
+}
+
+function renderTasks() {
+  const ul = $("#tasks");
+  const query = taskFilter.value.trim().toLocaleLowerCase();
+  const matchedTasks = S.tasks.filter(task => taskMatchesFilter(task, query));
+  const matchedIds = new Set(matchedTasks.map(task => task.id));
+  const visibleTasks = editingId
+    ? S.tasks.filter(task => task.id === editingId || matchedIds.has(task.id))
+    : matchedTasks;
+  updateFilterCount(matchedTasks.length, query);
+  if (!S.tasks.length) {
+    ul.classList.remove("cols");
+    ul.innerHTML = '<li class="empty">No tasks yet. Add one above. To move a task later, click a card, then a column.</li>';
+    return;
+  }
+  // Kanban grouping over the priority order. Queued cards reorder (the
+  // global `move` op); Queued ⇄ In Progress drags claim/release lane slots;
+  // Blocked/Done/Failed are drag-free views.
+  const cols = [
+    ["Queued", visibleTasks.filter(t => t.status === "pending" && t.eligible)],
+    ["Blocked", visibleTasks.filter(t => t.status === "pending" && !t.eligible)],
+    ["In Progress", visibleTasks.filter(t => t.status === "active")],
+    ["Done", visibleTasks.filter(t => t.status === "done")],
+    ["Failed", visibleTasks.filter(t => t.status === "failed")],
+  ];
+  ul.classList.add("cols");
+  ul.innerHTML = cols.map(([name, items]) => {
+    let cards = items.map(t => {
+      const lane = t.status === "active" ? laneById(t.id) : null;
+      const cls = "card" + (lane && lane.stale ? " stale" : "") + (armedId === t.id ? " selected" : "");
+      // Every card grabs from anywhere on its body; buttons/inputs inside
+      // still click/type normally. The unique view-transition-name lets a
+      // strip slide to its new bay when a move re-renders the board.
+      return '<li class="' + cls + '" data-id="' + t.id + '" draggable="true" title="Drag to move"'
+        + ' style="view-transition-name: card-' + t.id + '">' + taskHtml(t) + '</li>';
+    }).join("");
+    // Free lane slots are visible drop targets: dropping a Queued card on
+    // the column claims it into the next free slot (server assigns lane-N).
+    if (name === "In Progress") {
+      // A text filter may hide active cards, but it must never invent capacity.
+      const activeCount = S.tasks.filter(t => t.status === "active").length;
+      const free = S.config.maxParallel - activeCount;
+      if (free > 0) cards += '<li class="slot">drop a task here to start it ('
+        + free + ' lane' + (free > 1 ? 's' : '') + ' free)</li>';
+    }
+    return '<li class="col" data-col="' + name + '"><h2>' + name + ' <span class="n">' + items.length + '</span></h2>'
+      + '<ul class="cards">' + cards + '</ul></li>';
+  }).join("");
+  const dropOf = async (from, targetId, targetCol) => {
+    // Every column is a real drop target. Terminal columns act directly;
+    // the flow columns normalize to pending first, then apply the column.
+    const prep = async id => {
+      const cur = S.tasks.find(x => x.id === id);
+      if (!cur) return false;
+      if (cur.status === "active") return post({ op: "release", id });
+      if (cur.status === "failed") return post({ op: "requeue", id });
+      if (cur.status === "done") return post({ op: "reopen", id });
+      return true;
+    };
+    const at = id => S.tasks.findIndex(x => x.id === id);
+    if (targetCol === "Done") {
+      if (from !== targetId) post({ op: "mark-done", id: from });
+      return;
+    }
+    if (targetCol === "Failed") {
+      if (from !== targetId) post({ op: "force-fail", id: from });
+      return;
+    }
+    if (!await prep(from)) return;
+    const t = S.tasks.find(x => x.id === from);
+    if (targetCol === "Blocked") {
+      if (!t.held) await post({ op: "hold", id: from });
+      if (targetId && targetId !== from) post({ op: "move", id: from, to: at(targetId) });
+    } else if (targetCol === "In Progress") {
+      if (t.held) await post({ op: "unhold", id: from });
+      post({ op: "claim-lane", id: from });
+    } else if (targetCol === "Queued") {
+      if (t.held) await post({ op: "unhold", id: from });
+      if (targetId && targetId !== from) post({ op: "move", id: from, to: at(targetId) });
+      else if (!targetId) {
+        const queued = S.tasks.filter(x => x.status === "pending" && x.eligible);
+        if (queued.length && queued[queued.length - 1].id !== from) {
+          post({ op: "move", id: from, to: S.tasks.indexOf(queued[queued.length - 1]) + 1 });
+        }
+      }
+    }
+  };
+  ul.querySelectorAll(".col").forEach(col => {
+    const name = col.dataset.col;
+    col.addEventListener("dragover", e => {
+      // Every column accepts every card — the router maps the drop to the
+      // column's meaning (move/hold/claim/done/fail). Self-drops no-op there.
+      if (draggingId) e.preventDefault();
+    });
+    col.addEventListener("drop", e => {
+      const from = draggingId;
+      draggingId = null;
+      lastDrop = Date.now();
+      if (from) dropOf(from, null, name);
+    });
+    col.addEventListener("click", e => {
+      // Click-to-move: an armed card travels to the clicked column. The
+      // guards keep it from firing on controls, mid-edit, or as the echo of
+      // a real drag-and-drop (whose click lands within milliseconds).
+      const el = e.target;
+      if (!armedId || editingId || Date.now() - lastDrop < 400) return;
+      if (el && el.closest && el.closest("button, input, select, textarea, a, .editor")) return;
+      const from = armedId;
+      armedId = null;
+      dropOf(from, null, name);
+    });
+  });
+  ul.querySelectorAll(".card").forEach(li => {
+    const id = li.dataset.id;
+    li.addEventListener("dragstart", e => {
+      // A grab that starts on a button/input belongs to that control (click
+      // or text selection), not to the card — everywhere else drags the card.
+      const el = e.target;
+      if (el && el.closest && el.closest("button, input, select, textarea, a")) {
+        e.preventDefault();
+        return;
+      }
+      draggingId = id;
+      document.body.classList.add("dragging");
+      // Firefox only fires drop when the gesture carries data — Chrome is
+      // lenient, so set it unconditionally.
+      e.dataTransfer.setData("text/plain", id);
+      e.dataTransfer.effectAllowed = "move";
+    });
+    // dragend on the card can be missed (drop outside the window, DOM rebuilt
+    // mid-gesture): the window fallback guarantees draggingId never sticks,
+    // which would otherwise freeze auto-refresh behind a stale banner forever.
+    // (Registered once below, next to the other global listeners.)
+    li.addEventListener("dragend", () => {
+      draggingId = null;
+      document.body.classList.remove("dragging");
+      ul.querySelectorAll(".dragover").forEach(d => d.classList.remove("dragover"));
+    });
+    li.addEventListener("dragover", e => {
+      if (draggingId) { e.preventDefault(); li.classList.add("dragover"); }
+    });
+    li.addEventListener("dragleave", () => li.classList.remove("dragover"));
+    li.addEventListener("drop", e => {
+      e.preventDefault();
+      e.stopPropagation(); // the card (with its target id) wins over the column
+      const from = draggingId;
+      draggingId = null;
+      lastDrop = Date.now();
+      if (from && from !== id) dropOf(from, id, li.closest(".col").dataset.col);
+    });
+    li.addEventListener("click", e => {
+      const el = e.target;
+      if (editingId || Date.now() - lastDrop < 400) return;
+      if (el && el.closest && el.closest("button, input, select, textarea, a, .editor")) return;
+      // Arming must not bubble to the column's click-to-move handler, which
+      // would read the fresh armedId and "move" the card into its own column.
+      e.stopPropagation();
+      armedId = armedId === id ? null : id;
+      render();
+    });
+    li.querySelectorAll("[data-act]").forEach(btn => {
+      btn.onclick = () => {
+        const act = btn.dataset.act;
+        if (act === "edit") { editingId = editingId === id ? null : id; render(); }
+        else if (act === "remove") confirmRemove(S.tasks.find(x => x.id === id));
+        else if (act === "top") post({ op: "top", id });
+        else if (act === "stop-lane") post({ op: "stop-lane", id });
+        else if (act === "requeue") post({ op: "requeue", id });
+      };
+    });
+    const editor = li.querySelector(".editor");
+    if (editor) {
+      const dial = editor.querySelector('[name="architecture"]');
+      const help = editor.querySelector("#edit-architecture-help");
+      updateArchitectureHelp(dial, help);
+      dial.addEventListener("change", () => updateArchitectureHelp(dial, help));
+      editor.addEventListener("submit", e => {
+        e.preventDefault();
+        const v = name => editor.querySelector('[name="' + name + '"]').value;
+        post({ op: "set", id, fields: {
+          title: v("title"), mode: v("mode"), architecture: v("architecture"), slug: v("slug"), deps: v("deps"),
+          files: v("files"), contracts: v("contracts"), validate: v("validate"), accept: v("accept"), note: v("note"),
+        } });
+      });
+      editor.querySelector("[data-cancel]").onclick = () => { editingId = null; render(); };
+    }
+  });
+}
+
+function renderNow() {
+  // Re-rendering rebuilds an open editor from server state; carry the user's
+  // typed-but-unsaved field values across so no op can eat their input.
+  const openEditor = editingId && $('#tasks li[data-id="' + editingId + '"] .editor');
+  const typed = openEditor
+    ? [...openEditor.querySelectorAll("[name]")].map(el => [el.name, el.value]) : null;
+  renderStatus();
+  renderTasks();
+  if (typed) {
+    const editor = $('#tasks li[data-id="' + editingId + '"] .editor');
+    if (editor) for (const [name, value] of typed) {
+      const el = editor.querySelector('[name="' + name + '"]');
+      if (el) el.value = value;
+    }
+  }
+  $("#stale").style.display = "none";
+}
+
+// Strips slide between bays via a view transition (modern-web: group-
+// element-transitions). Skipped while an editor is open — the transition
+// briefly overlays snapshots, which would swallow keystrokes — and when the
+// browser lacks the API; reduced motion is handled in CSS.
+function render() {
+  if (!document.startViewTransition || editingId) { renderNow(); return; }
+  // Back-to-back renders (an op, then its SSE echo) skip the older
+  // transition; its update still runs, but `ready` rejects — swallow that.
+  document.startViewTransition(renderNow).ready.catch(() => {});
+}
+
+// ------------------------------------------------------------------ add form
+
+const taskFilter = $("#task-filter");
+taskFilter.addEventListener("input", () => {
+  render();
+});
+$("#filter").addEventListener("submit", e => e.preventDefault());
+$("#filter-clear").onclick = () => {
+  taskFilter.value = "";
+  render();
+  taskFilter.focus();
+};
+
+$("#add-architecture").addEventListener("change", event => updateArchitectureHelp(event.target, $("#add-architecture-help")));
+
+$("#add").addEventListener("submit", e => {
+  e.preventDefault();
+  const v = name => $('#add [name="' + name + '"]').value;
+  const fields = {};
+  for (const k of ["mode", "architecture", "slug", "deps", "files", "contracts", "validate", "accept"]) {
+    if (v(k) && !(k === "mode" && v(k) === "direct")) fields[k] = v(k);
+  }
+  post({ op: "add", title: v("title"), top: $('#add [name="top"]').checked, fields })
+    .then(ok => { if (ok) { $("#add").reset(); updateArchitectureHelp($("#add-architecture"), $("#add-architecture-help")); } });
+});
+
+// ------------------------------------------------------------------ live
+
+// A missed card-level dragend (drop outside the window, DOM rebuilt
+// mid-gesture) must never stick draggingId — that would freeze auto-refresh
+// behind the stale banner forever. Registered once: renderTasks rebuilds the
+// cards on every state change, so a per-card registration would leak.
+window.addEventListener("dragend", () => {
+  draggingId = null;
+  document.body.classList.remove("dragging");
+  document.querySelectorAll(".dragover").forEach(d => d.classList.remove("dragover"));
+});
+document.addEventListener("keydown", e => {
+  if (e.key === "Escape" && armedId) { armedId = null; render(); }
+});
+
+$("#refresh").onclick = refresh;
+new EventSource("/events").onmessage = () => {
+  // A worker (or another console) wrote the file. Never fight an open editor
+  // or an in-flight drag — offer a refresh instead (design.md D8).
+  if (busy()) $("#stale").style.display = "block";
+  else refresh();
+};
+refresh();
+setInterval(() => void refreshHost(), HOST_REFRESH_MS);
+</script>
+</body>
+</html>
