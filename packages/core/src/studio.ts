@@ -8,7 +8,7 @@ import { askQuestion, ModelUnavailableError, type ModelConnector, type ModelStat
 import { newId } from './hash.ts';
 import { executeRun, type SandboxConnector, type SandboxStatus } from './runner.ts';
 import { NotFoundError, type EvidenceStore, type Project } from './store.ts';
-import { summarizeUsage, UNKNOWN_USAGE, type ModelUsage, type UsageKind, type UsageRecord, type UsageSummary } from './usage.ts';
+import { summarizeUsage, UNKNOWN_USAGE, type ModelUsage, type ProviderLimit, type UsageKind, type UsageRecord, type UsageSummary } from './usage.ts';
 import type { Answer, CodeSymbol, Entry, ObservedEdge, RepoSnapshot, ResolvedCitation, Run, StaticEdge, TraceEvent } from './schema.ts';
 
 export interface SourceRef { kind: string; ref: string; name?: string }
@@ -66,8 +66,8 @@ export class Studio {
     return snap;
   }
 
-  private record(r: { kind: UsageKind; projectId: string | null; provider: string; started: number; ok: boolean; detail: string; usage?: ModelUsage }): void {
-    const rec: UsageRecord = { ...(r.usage ?? UNKNOWN_USAGE), id: newId('use'), at: new Date().toISOString(), kind: r.kind, projectId: r.projectId,
+  private record(r: { kind: UsageKind; projectId: string | null; provider: string; started: number; ok: boolean; detail: string; usage?: ModelUsage; limits?: ProviderLimit[] | null }): void {
+    const rec: UsageRecord = { ...(r.usage ?? UNKNOWN_USAGE), limits: r.limits ?? null, id: newId('use'), at: new Date().toISOString(), kind: r.kind, projectId: r.projectId,
       provider: r.provider, durationMs: performance.now() - r.started, ok: r.ok, detail: r.detail.slice(0, MAX_NOTE) };
     this.store.recordUsage(rec);
   }
@@ -197,7 +197,7 @@ export class Studio {
     const started = performance.now();
     try {
       const answer = await askQuestion(question, this.opts.model, this.citationContext(projectId));
-      this.record({ kind: 'model', projectId, provider: this.opts.model.name, started, ok: true, detail: answer.abstained ? 'abstained' : 'answered', usage: answer.usage ?? undefined });
+      this.record({ kind: 'model', projectId, provider: this.opts.model.name, started, ok: true, detail: answer.abstained ? 'abstained' : 'answered', usage: answer.usage ?? undefined, limits: answer.limits });
       return answer;
     } catch (error) {
       if (!(error instanceof ModelUnavailableError)) this.record({ kind: 'model', projectId, provider: this.opts.model.name, started, ok: false, detail: (error as Error).message });

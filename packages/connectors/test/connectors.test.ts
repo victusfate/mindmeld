@@ -106,8 +106,20 @@ test('agent CLI models: prompt on stdin, tools off, empty cwd, no Studio secrets
 
 test('CLI usage parsers read reported usage and leave the rest unknown', () => {
   const claude = parseClaude(JSON.stringify({ result: 'hi', total_cost_usd: 0.01, usage: { input_tokens: 3, output_tokens: 4, cache_read_input_tokens: 5, cache_creation_input_tokens: 6 }, modelUsage: { 'm-1': {} } }), null);
-  assert.deepEqual(claude, { text: 'hi', usage: { model: 'm-1', inputTokens: 3, outputTokens: 4, cacheReadTokens: 5, cacheWriteTokens: 6, costUsd: 0.01 } });
+  assert.deepEqual(claude, { text: 'hi', usage: { model: 'm-1', inputTokens: 3, outputTokens: 4, cacheReadTokens: 5, cacheWriteTokens: 6, costUsd: 0.01 }, limits: null });
   assert.deepEqual(parseClaude('plain text', null).usage.costUsd, null);
+  const stream = [
+    JSON.stringify({ type: 'system', subtype: 'init' }),
+    JSON.stringify({ type: 'rate_limit_event', rate_limit_info: { unifiedWindows: { five_hour: { utilization: 0.3, resetsAt: 1794582000, status: 'allowed' }, seven_day: { utilization: 0.48, status: 'allowed' } } } }),
+    JSON.stringify({ type: 'result', result: 'ok', total_cost_usd: 0.02, usage: { input_tokens: 1, output_tokens: 2 }, modelUsage: { m: {} } }),
+  ].join('\n');
+  const streamed = parseClaude(stream, null);
+  assert.equal(streamed.text, 'ok');
+  assert.equal(streamed.usage.costUsd, 0.02);
+  assert.deepEqual(streamed.limits, [
+    { window: 'five_hour', utilization: 0.3, resetsAt: new Date(1794582000 * 1000).toISOString(), status: 'allowed' },
+    { window: 'seven_day', utilization: 0.48, resetsAt: null, status: 'allowed' },
+  ]);
   const codex = parseCodex(['{"type":"thread.started"}', '{"type":"turn.completed","usage":{"input_tokens":10,"cached_input_tokens":2,"output_tokens":7}}'].join('\n'), 'answer');
   assert.equal(codex.text, 'answer');
   assert.deepEqual([codex.usage.inputTokens, codex.usage.outputTokens, codex.usage.cacheReadTokens, codex.usage.costUsd], [10, 7, 2, null]);
@@ -120,6 +132,7 @@ test('real claude CLI answers through the connector', { skip: process.env.RUN_MI
   assert.match(answer.text, /pong/i);
   assert.ok((answer.usage.outputTokens ?? 0) > 0, 'claude reports token usage');
   assert.ok(answer.usage.costUsd !== null && answer.usage.model !== null);
+  assert.ok(answer.limits?.length, 'claude reports at least one plan window');
 });
 
 test('git source: https only, no credentials, hooks disabled, clones a real repo', async () => {

@@ -8,7 +8,7 @@ import { spawn, spawnSync } from 'node:child_process';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { UNKNOWN_USAGE, type ChatMessage, type ChatReply, type ModelConnector, type ModelStatus, type ModelUsage } from '@mindmeld/core';
+import { UNKNOWN_USAGE, type ChatMessage, type ChatReply, type ModelConnector, type ModelStatus, type ModelUsage, type ProviderLimit } from '@mindmeld/core';
 
 export type CliProvider = 'claude' | 'codex' | 'agy' | 'pi';
 export const CLI_PROVIDERS: CliProvider[] = ['claude', 'codex', 'agy', 'pi'];
@@ -32,16 +32,33 @@ function tryJson(text: string): Json | null {
 /** Plain text; the CLI reports no usage, so every usage field is unknown. */
 const parseText: Parser = (stdout, file) => ({ text: file ?? stdout, usage: UNKNOWN_USAGE });
 
-/** `claude -p --output-format json`: {result, usage{...}, total_cost_usd, modelUsage{<model>: {...}}}. */
+const MS_PER_SECOND = 1000;
+const isoFromEpoch = (v: unknown): string | null => (num(v) === null ? null : new Date((v as number) * MS_PER_SECOND).toISOString());
+
+/** claude `rate_limit_event`s: {rate_limit_info: {unifiedWindows: {five_hour|seven_day: {utilization, resetsAt, status}}}}. */
+export function claudeLimits(events: Json[]): ProviderLimit[] | null {
+  const windows = new Map<string, ProviderLimit>();
+  for (const e of events) {
+    if (e.type !== 'rate_limit_event') continue;
+    for (const [window, raw] of Object.entries(obj(obj(e.rate_limit_info).unifiedWindows))) {
+      const w = obj(raw);
+      windows.set(window, { window, utilization: num(w.utilization), resetsAt: isoFromEpoch(w.resetsAt), status: typeof w.status === 'string' ? w.status : null });
+    }
+  }
+  return windows.size ? [...windows.values()] : null;
+}
+
+/** `claude -p --output-format stream-json --verbose` (JSONL; last `result` event has usage) or plain `json`. */
 export const parseClaude: Parser = (stdout, file) => {
-  const j = tryJson(stdout);
+  const events = stdout.split('\n').map(tryJson).filter((e): e is Json => e !== null);
+  const j = events.findLast(e => typeof e.result === 'string');
   if (!j || typeof j.result !== 'string') return parseText(stdout, file);
   const u = obj(j.usage);
   const usage: ModelUsage = {
     model: Object.keys(obj(j.modelUsage))[0] ?? null, inputTokens: num(u.input_tokens), outputTokens: num(u.output_tokens),
     cacheReadTokens: num(u.cache_read_input_tokens), cacheWriteTokens: num(u.cache_creation_input_tokens), costUsd: num(j.total_cost_usd),
   };
-  return { text: j.result, usage };
+  return { text: j.result, usage, limits: claudeLimits(events) };
 };
 
 /** `codex exec --json -o FILE`: JSONL events on stdout, `turn.completed` carries usage; the answer is in FILE. */
@@ -57,7 +74,7 @@ export const parseCodex: Parser = (stdout, file) => {
 };
 /** `verified`: flags checked against the CLI's help. Unverified presets can be replaced with MINDMELD_MODEL_ARGS. */
 const PRESETS: Record<CliProvider, Preset> = {
-  claude: { args: ['-p', '--output-format', 'json', '--tools', '', '--no-session-persistence', '--disable-slash-commands', '--strict-mcp-config'], parse: parseClaude, verified: true },
+  claude: { args: ['-p', '--output-format', 'stream-json', '--verbose', '--tools', '', '--no-session-persistence', '--disable-slash-commands', '--strict-mcp-config'], parse: parseClaude, verified: true },
   codex: { args: ['exec', '--json', '--sandbox', 'read-only', '--skip-git-repo-check', '--ephemeral', '-o', OUT, '-'], parse: parseCodex, verified: true },
   agy: { args: ['-p'], parse: parseText, verified: false },
   pi: { args: ['-p'], parse: parseText, verified: false },
