@@ -1,12 +1,11 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createServer, type Server } from 'node:http';
 import { spawnSync } from 'node:child_process';
 import { cpSync, mkdtempSync, writeFileSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { EvidenceStore, Studio, SandboxUnavailableError } from '@mindmeld/core';
-import { OciSandbox, DisabledSandbox, OllamaModel, OpenAICompatibleModel, checkEndpoint, checkGitUrl, GitSource, LocalDirectorySource, connectorsFromEnv } from '../src/index.ts';
+import { OciSandbox, DisabledSandbox, CliModel, flattenMessages, checkGitUrl, GitSource, LocalDirectorySource, connectorsFromEnv } from '../src/index.ts';
 
 const FIXTURE = new URL('../../../fixtures/combat-game', import.meta.url).pathname;
 const hero = { name: 'hero', hp: 10, attack: 7, armor: 1 };
@@ -64,46 +63,52 @@ export function spin(): number { for (;;) { /* runaway */ } }
   assert.equal(readFileSync(join(dir, 'src/game.ts'), 'utf8').includes('pwned'), false);
 });
 
-function fakeServer(routes: Record<string, (body: unknown) => unknown>): Promise<{ server: Server; url: string }> {
-  return new Promise(resolve => {
-    const server = createServer((req, res) => {
-      let data = '';
-      req.on('data', c => { data += String(c); });
-      req.on('end', () => {
-        const handler = routes[`${req.method} ${req.url}`];
-        if (!handler) { res.statusCode = 404; res.end('{}'); return; }
-        res.setHeader('content-type', 'application/json');
-        res.end(JSON.stringify(handler(data ? JSON.parse(data) : null)));
-      });
-    }).listen(0, '127.0.0.1', () => resolve({ server, url: `http://127.0.0.1:${(server.address() as { port: number }).port}` }));
-  });
+const FAKE_CLI = `#!/usr/bin/env node
+const args = process.argv.slice(2);
+if (args[0] === '--version') { console.log('fake-agent 1.0'); process.exit(0); }
+let input = '';
+process.stdin.on('data', c => { input += c; });
+process.stdin.on('end', () => {
+  const out = args.indexOf('-o');
+  const reply = JSON.stringify({ args, cwd: process.cwd(), token: process.env.MINDMELD_TOKEN ?? null, input });
+  if (out >= 0) require('node:fs').writeFileSync(args[out + 1], reply); else process.stdout.write(reply);
+});
+`;
+
+function fakeCli(): string {
+  const dir = mkdtempSync(join(tmpdir(), 'mm-cli-'));
+  const bin = join(dir, 'fake-agent.cjs');
+  writeFileSync(bin, FAKE_CLI, { mode: 0o755 });
+  return bin;
 }
 
-test('Ollama and OpenAI-compatible connectors speak their protocols', async () => {
-  const seen: unknown[] = [];
-  const { server, url } = await fakeServer({
-    'GET /api/tags': () => ({ models: [{ name: 'qwen2.5-coder:7b' }] }),
-    'POST /api/chat': b => { seen.push(b); return { message: { content: 'hi [S:a#b]' } }; },
-    'GET /v1/models': () => ({ data: [{ id: 'local-model' }] }),
-    'POST /v1/chat/completions': () => ({ choices: [{ message: { content: 'ok' } }] }),
-  });
+test('agent CLI models: prompt on stdin, tools off, empty cwd, no Studio secrets', async () => {
+  const bin = fakeCli();
+  process.env.MINDMELD_TOKEN = 'secret-token';
   try {
-    const ollama = new OllamaModel({ endpoint: url, model: 'qwen2.5-coder' });
-    assert.equal((await ollama.status()).available, true);
-    assert.equal(await ollama.chat([{ role: 'user', content: 'q' }]), 'hi [S:a#b]');
-    assert.equal((seen[0] as { stream: boolean }).stream, false);
-    assert.equal((await new OllamaModel({ endpoint: url, model: 'llama3' }).status()).available, false);
-    const oai = new OpenAICompatibleModel({ endpoint: url, model: 'local-model' });
-    assert.equal((await oai.status()).available, true);
-    assert.equal(await oai.chat([{ role: 'user', content: 'q' }]), 'ok');
-  } finally { server.close(); }
-  assert.equal((await new OllamaModel({ endpoint: 'http://127.0.0.1:1', model: 'x' }).status()).available, false);
+    const claude = new CliModel({ provider: 'claude', command: bin, model: 'sonnet' });
+    assert.equal((await claude.status()).available, true);
+    const reply = JSON.parse(await claude.chat([{ role: 'system', content: 'rules' }, { role: 'user', content: 'question?' }]));
+    assert.deepEqual(reply.args.slice(0, 2), ['--model', 'sonnet']);
+    assert.ok(reply.args.includes('--tools') && reply.args[reply.args.indexOf('--tools') + 1] === '');
+    assert.match(reply.input, /# Instructions\nrules[\s\S]*# Request\nquestion\?/);
+    assert.equal(reply.token, null);
+    assert.match(reply.cwd, /mindmeld-model-/);
+    const codex = new CliModel({ provider: 'codex', command: bin });
+    const viaFile = JSON.parse(await codex.chat([{ role: 'user', content: 'q' }]));
+    assert.ok(viaFile.args.includes('--sandbox') && viaFile.args.includes('read-only'));
+    assert.equal(viaFile.input, '# Request\nq');
+  } finally { delete process.env.MINDMELD_TOKEN; }
+  assert.equal((await new CliModel({ provider: 'pi', command: '/nonexistent/pi' }).status()).available, false);
+  assert.match((await new CliModel({ provider: 'agy', command: bin }).status()).reason, /unverified/);
+  assert.equal(flattenMessages([{ role: 'assistant', content: 'a' }]), '# Previous answer\na');
 });
 
-test('model endpoints must be local unless explicitly allowed', () => {
-  assert.throws(() => checkEndpoint('https://api.example.com'), /not local/);
-  assert.throws(() => checkEndpoint('http://user:pw@127.0.0.1:1'), /credentials/);
-  assert.equal(checkEndpoint('http://ollama:11434', ['ollama']).hostname, 'ollama');
+test('real claude CLI answers through the connector', { skip: process.env.RUN_MINDMELD_CLI_MODEL !== '1' && 'set RUN_MINDMELD_CLI_MODEL=1 to call the installed claude CLI' }, async () => {
+  const model = new CliModel({ provider: 'claude' });
+  assert.equal((await model.status()).available, true);
+  const answer = await model.chat([{ role: 'system', content: 'Reply with exactly the word: pong' }, { role: 'user', content: 'ping' }]);
+  assert.match(answer, /pong/i);
 });
 
 test('git source: https only, no credentials, hooks disabled, clones a real repo', async () => {
@@ -130,7 +135,9 @@ test('environment config builds fail-closed defaults', () => {
   const none = connectorsFromEnv({ MINDMELD_SANDBOX: 'none', MINDMELD_MODEL_PROVIDER: 'none' }, tmpdir());
   assert.equal(none.sandbox.name, 'disabled');
   assert.equal(none.model, null);
-  const remote = connectorsFromEnv({ MINDMELD_MODEL_ENDPOINT: 'https://api.example.com' }, tmpdir());
-  assert.equal(remote.model, null);
-  assert.match(remote.notes[0], /not local/);
+  const unknown = connectorsFromEnv({ MINDMELD_MODEL_PROVIDER: 'openai' }, tmpdir());
+  assert.equal(unknown.model, null);
+  assert.match(unknown.notes[0], /unknown provider/);
+  const codex = connectorsFromEnv({ MINDMELD_MODEL_PROVIDER: 'codex' }, tmpdir());
+  assert.equal(codex.model?.name, 'codex-cli');
 });

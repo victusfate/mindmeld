@@ -7,7 +7,7 @@ import type { Answer, AnswerSentence, CodeSymbol, ResolvedCitation, TraceEvent }
 
 export interface ChatMessage { role: 'system' | 'user' | 'assistant'; content: string }
 export interface ModelStatus { available: boolean; reason: string; model: string | null }
-/** Implemented by @mindmeld/connectors (Ollama, OpenAI-compatible local endpoints). */
+/** Implemented by @mindmeld/connectors: local agent CLIs (claude, codex, agy, pi); no API keys. */
 export interface ModelConnector {
   readonly name: string;
   status(): Promise<ModelStatus>;

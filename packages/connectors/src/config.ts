@@ -2,15 +2,12 @@
 import { join } from 'node:path';
 import type { ModelConnector, SandboxConnector, SourceConnector } from '@mindmeld/core';
 import { DisabledSandbox, OciSandbox } from './sandbox.ts';
-import { OllamaModel, OpenAICompatibleModel } from './model.ts';
+import { CLI_PROVIDERS, CliModel, detectProvider, type CliProvider } from './model.ts';
 import { GitSource, LocalDirectorySource } from './source.ts';
 
 export interface ConnectorConfig { sandbox: SandboxConnector; model: ModelConnector | null; sources: SourceConnector[]; notes: string[] }
 
 const list = (v: string | undefined): string[] => (v ?? '').split(',').map(s => s.trim()).filter(Boolean);
-
-const DEFAULT_ENDPOINTS: Record<string, string> = { ollama: 'http://127.0.0.1:11434', openai: 'http://127.0.0.1:8080' };
-export const DEFAULT_MODEL = 'qwen2.5-coder:7b';
 
 function sandboxFromEnv(env: NodeJS.ProcessEnv): SandboxConnector {
   const kind = env.MINDMELD_SANDBOX ?? 'docker';
@@ -18,15 +15,24 @@ function sandboxFromEnv(env: NodeJS.ProcessEnv): SandboxConnector {
   return new DisabledSandbox(kind === 'none' ? 'sandbox disabled (MINDMELD_SANDBOX=none)' : `unknown sandbox ${kind}`);
 }
 
+/**
+ * MINDMELD_MODEL_PROVIDER: auto (default: first installed of claude, codex, agy, pi) | claude | codex | agy | pi | none.
+ * MINDMELD_MODEL: optional model name passed as --model. MINDMELD_MODEL_COMMAND / MINDMELD_MODEL_ARGS (JSON array,
+ * `{out}` = answer file) override the CLI invocation. No API keys or HTTP endpoints are ever used.
+ */
 function modelFromEnv(env: NodeJS.ProcessEnv, notes: string[]): ModelConnector | null {
-  const provider = env.MINDMELD_MODEL_PROVIDER ?? 'ollama';
-  if (provider === 'none') return null;
-  const options = {
-    endpoint: env.MINDMELD_MODEL_ENDPOINT ?? DEFAULT_ENDPOINTS[provider] ?? DEFAULT_ENDPOINTS.ollama,
-    model: env.MINDMELD_MODEL ?? DEFAULT_MODEL, allowHosts: list(env.MINDMELD_MODEL_ALLOW_HOSTS), apiKey: env.MINDMELD_MODEL_API_KEY,
-  };
-  try { return provider === 'openai' ? new OpenAICompatibleModel(options) : new OllamaModel(options); }
-  catch (error) { notes.push(`model disabled: ${(error as Error).message}`); return null; }
+  const wanted = env.MINDMELD_MODEL_PROVIDER ?? 'auto';
+  if (wanted === 'none') return null;
+  if (wanted !== 'auto' && !CLI_PROVIDERS.includes(wanted as CliProvider)) {
+    notes.push(`model disabled: unknown provider ${wanted} (use ${CLI_PROVIDERS.join(', ')}, auto or none)`);
+    return null;
+  }
+  const provider = wanted === 'auto' ? detectProvider() : wanted as CliProvider;
+  if (!provider) { notes.push(`model disabled: no local agent CLI found (${CLI_PROVIDERS.join(', ')})`); return null; }
+  let args: string[] | undefined;
+  try { args = env.MINDMELD_MODEL_ARGS ? JSON.parse(env.MINDMELD_MODEL_ARGS) as string[] : undefined; }
+  catch { notes.push('MINDMELD_MODEL_ARGS is not a JSON array; using the preset'); }
+  return new CliModel({ provider, command: env.MINDMELD_MODEL_COMMAND, args, model: env.MINDMELD_MODEL });
 }
 
 export function connectorsFromEnv(env: NodeJS.ProcessEnv, dataDir: string): ConnectorConfig {
