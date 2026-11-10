@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import type { Answer, CodeSymbol, ObservedEdge, ResolvedCitation, RunDiff, StaticEdge, TraceEvent } from '@mindmeld/client';
+import type { Answer, CodeSymbol, ObservedEdge, ResolvedCitation, RunDiff, StaticEdge, TraceEvent } from '../../client/src/index.ts';
 import { fileSlots, layers, layoutSymbols, ROW_HEIGHT } from '../src/lib/layout.ts';
 import { mapEdges, edgeKey } from '../src/lib/edges.ts';
 import { callStack, clampStep, pathUpTo } from '../src/lib/replay.ts';

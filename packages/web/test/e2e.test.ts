@@ -6,9 +6,9 @@ import { createRequire } from 'node:module';
 import { appendFileSync, mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { EvidenceStore, Studio } from '@mindmeld/core';
-import { LocalDirectorySource } from '@mindmeld/connectors';
-import { startServer } from '@mindmeld/server';
+import { EvidenceStore, Studio } from '../../core/src/index.ts';
+import { LocalDirectorySource } from '../../connectors/src/index.ts';
+import { startServer } from '../../server/src/index.ts';
 import { HostProcessSandbox, ScriptedModel, copyFixture } from '../../core/test/helpers.ts';
 import { build } from '../build.ts';
 

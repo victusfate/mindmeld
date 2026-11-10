@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import type { UsageSummary } from '@mindmeld/client';
+import type { UsageSummary } from '../../client/src/index.ts';
 import { costLabel, count, limitLabel, money, percent, usageLine, usageTooltip, windowName } from '../src/lib/usage.ts';
 
 const totals = (o: Partial<UsageSummary['totals']> = {}): UsageSummary['totals'] => ({
