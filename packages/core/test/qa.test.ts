@@ -60,3 +60,18 @@ test('judgeAnswer treats "unknown" sentences as unknowns', () => {
   assert.equal(a.abstained, true);
   assert.deepEqual(a.unknowns, ['unknown: the evidence does not show retries.']);
 });
+
+test('usage is recorded per index, run and model call; unknown stays unknown', async () => {
+  const model = new ScriptedModel(() => 'playTurn attacks [S:src/game.ts#playTurn].');
+  const { studio, project } = await setup(model);
+  const answer = await studio.ask(project.id, 'what does playTurn do?');
+  assert.deepEqual([answer.usage?.inputTokens, answer.usage?.costUsd], [100, 0.001]);
+  const summary = studio.usage(project.id);
+  assert.deepEqual(summary.groups.map(g => g.kind).sort(), ['index', 'model', 'run']);
+  const m = summary.groups.find(g => g.kind === 'model')!;
+  assert.deepEqual([m.count, m.inputTokens, m.outputTokens, m.unknownCost], [1, 100, 20, 0]);
+  assert.equal(summary.recent[0].kind, 'model');
+  assert.throws(() => studio.store.db.prepare("UPDATE usage SET data = '{}'").run(), /append-only/);
+  const { formatUsage } = await import('../src/index.ts');
+  assert.match(formatUsage(summary), /model scripted \(scripted-1\): 1×/);
+});

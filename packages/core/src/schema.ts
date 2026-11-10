@@ -1,6 +1,8 @@
 // Evidence contracts (schema version 2). Static edges are *possible* relationships; observed edges come only
 // from recorded events; model output is an interpretation that must cite one of the two or say "unknown".
 
+import type { ModelUsage } from './usage.ts';
+
 export const SCHEMA_VERSION = 2;
 
 export interface SourceFile { path: string; hash: string; bytes: number; language: Language }
@@ -116,4 +118,6 @@ export interface Answer {
   unknowns: string[];
   assumptions: string[];
   model: string | null;
+  /** Model usage for this answer as reported by the CLI (null fields = not reported). No model call → zeros. */
+  usage: ModelUsage | null;
 }

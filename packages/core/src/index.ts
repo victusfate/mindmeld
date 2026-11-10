@@ -11,3 +11,4 @@ export * from './diff.ts';
 export * from './qa.ts';
 export * from './bundle.ts';
 export * from './studio.ts';
+export * from './usage.ts';

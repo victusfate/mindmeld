@@ -4,7 +4,7 @@ import { spawn } from 'node:child_process';
 import { cpSync, mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type { ChatMessage, ModelConnector, ModelStatus, SandboxConnector, SandboxResult, SandboxSpec, SandboxStatus } from '../src/index.ts';
+import type { ChatMessage, ChatReply, ModelConnector, ModelStatus, SandboxConnector, SandboxResult, SandboxSpec, SandboxStatus } from '../src/index.ts';
 
 export const FIXTURE = new URL('../../../fixtures/combat-game', import.meta.url).pathname;
 
@@ -43,5 +43,8 @@ export class ScriptedModel implements ModelConnector {
   seen: ChatMessage[][] = [];
   constructor(reply: (messages: ChatMessage[]) => string) { this.reply = reply; }
   status(): Promise<ModelStatus> { return Promise.resolve({ available: this.available, reason: 'scripted', model: 'scripted-1' }); }
-  chat(messages: ChatMessage[]): Promise<string> { this.seen.push(messages); return Promise.resolve(this.reply(messages)); }
+  chat(messages: ChatMessage[]): Promise<ChatReply> {
+    this.seen.push(messages);
+    return Promise.resolve({ text: this.reply(messages), usage: { model: 'scripted-1', inputTokens: 100, outputTokens: 20, cacheReadTokens: null, cacheWriteTokens: null, costUsd: 0.001 } });
+  }
 }

@@ -6,6 +6,7 @@ import { dirname } from 'node:path';
 import { newId } from './hash.ts';
 import type { ImportedRepo } from './import.ts';
 import type { FileImport, StaticIndex } from './indexer.ts';
+import type { UsageRecord } from './usage.ts';
 import type { CodeSymbol, Entry, RepoSnapshot, Run, SourceFile, StaticEdge, TraceEvent } from './schema.ts';
 
 export interface Project { id: string; name: string; sourceKind: string; sourceRef: string; root: string; createdAt: string }
@@ -25,6 +26,9 @@ const MIGRATIONS: string[] = [
    CREATE TABLE events (run_id TEXT NOT NULL REFERENCES runs(id), seq INTEGER NOT NULL, data TEXT NOT NULL, PRIMARY KEY (run_id, seq));
    CREATE TRIGGER runs_immutable BEFORE UPDATE ON runs BEGIN SELECT RAISE(ABORT, 'runs are immutable'); END;
    CREATE TRIGGER events_immutable BEFORE UPDATE ON events BEGIN SELECT RAISE(ABORT, 'trace events are immutable'); END;`,
+  `CREATE TABLE usage (id TEXT PRIMARY KEY, at TEXT NOT NULL, project_id TEXT, kind TEXT NOT NULL, data TEXT NOT NULL);
+   CREATE INDEX usage_project ON usage (project_id, at);
+   CREATE TRIGGER usage_append_only BEFORE UPDATE ON usage BEGIN SELECT RAISE(ABORT, 'usage records are append-only'); END;`,
 ];
 
 type Row = Record<string, unknown>;
@@ -151,6 +155,17 @@ export class EvidenceStore {
     const row = this.db.prepare('SELECT data FROM runs WHERE id = ?').get(id) as Row | undefined;
     if (!row) throw new NotFoundError(`run ${id} not found`);
     return json<Run>(row);
+  }
+
+  recordUsage(r: UsageRecord): void {
+    this.db.prepare('INSERT INTO usage VALUES (?, ?, ?, ?, ?)').run(r.id, r.at, r.projectId, r.kind, JSON.stringify(r));
+  }
+
+  usage(projectId?: string): UsageRecord[] {
+    const rows = projectId
+      ? this.db.prepare('SELECT data FROM usage WHERE project_id = ? ORDER BY rowid').all(projectId)
+      : this.db.prepare('SELECT data FROM usage ORDER BY rowid').all();
+    return (rows as Row[]).map(r => json<UsageRecord>(r));
   }
 
   events(runId: string): TraceEvent[] {

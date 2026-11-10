@@ -4,14 +4,17 @@
 import { extractCitations, resolveCitation, type CitationContext } from './citations.ts';
 import { redactText } from './redact.ts';
 import type { Answer, AnswerSentence, CodeSymbol, ResolvedCitation, TraceEvent } from './schema.ts';
+import { UNKNOWN_USAGE, type ModelUsage } from './usage.ts';
 
 export interface ChatMessage { role: 'system' | 'user' | 'assistant'; content: string }
+/** `usage` holds what the provider reported; anything it did not report is null (unknown). */
+export interface ChatReply { text: string; usage: ModelUsage }
 export interface ModelStatus { available: boolean; reason: string; model: string | null }
 /** Implemented by @mindmeld/connectors: local agent CLIs (claude, codex, agy, pi); no API keys. */
 export interface ModelConnector {
   readonly name: string;
   status(): Promise<ModelStatus>;
-  chat(messages: ChatMessage[], options?: { signal?: AbortSignal }): Promise<string>;
+  chat(messages: ChatMessage[], options?: { signal?: AbortSignal }): Promise<ChatReply>;
 }
 export class ModelUnavailableError extends Error {}
 
@@ -78,7 +81,7 @@ export function judgeAnswer(question: string, raw: string, ctx: CitationContext,
   const supported = out.filter(s => s.supported);
   const abstained = supported.length === 0;
   return {
-    question, abstained, model, sentences: out, unknowns, citations: [...resolved.values()],
+    question, abstained, model, usage: null, sentences: out, unknowns, citations: [...resolved.values()],
     assumptions: ['Static edges are possible calls; only recorded events show observed behaviour.'],
     text: abstained ? `unknown: ${unknowns[0]?.replace(/^unknown:?\s*/i, '') || 'the answer did not cite resolvable evidence, so no claim is shown as supported.'}`
       : supported.map(s => s.text).join(' '),
@@ -91,11 +94,11 @@ export async function askQuestion(question: string, model: ModelConnector, ctx: 
   if (!status.available) throw new ModelUnavailableError(`local model unavailable: ${status.reason}`);
   const retrieval = retrieve(question, [...ctx.symbols.values()], ctx.contents, ctx.allEvents);
   if (!retrieval.symbols.length) {
-    return judgeAnswer(question, 'unknown: no indexed symbol or recorded event matches the question.', ctx, status.model);
+    return { ...judgeAnswer(question, 'unknown: no indexed symbol or recorded event matches the question.', ctx, status.model), usage: { ...UNKNOWN_USAGE, inputTokens: 0, outputTokens: 0, costUsd: 0 } };
   }
-  const raw = await model.chat([
+  const reply = await model.chat([
     { role: 'system', content: SYSTEM_PROMPT },
     { role: 'user', content: `${evidenceBlock(retrieval, ctx.contents)}\n\nQuestion: ${question}` },
   ], { signal: AbortSignal.timeout(MODEL_TIMEOUT_MS) });
-  return judgeAnswer(question, raw, ctx, status.model);
+  return { ...judgeAnswer(question, reply.text, ctx, reply.usage.model ?? status.model), usage: reply.usage };
 }

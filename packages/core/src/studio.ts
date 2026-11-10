@@ -8,6 +8,7 @@ import { askQuestion, ModelUnavailableError, type ModelConnector, type ModelStat
 import { newId } from './hash.ts';
 import { executeRun, type SandboxConnector, type SandboxStatus } from './runner.ts';
 import { NotFoundError, type EvidenceStore, type Project } from './store.ts';
+import { summarizeUsage, UNKNOWN_USAGE, type ModelUsage, type UsageKind, type UsageRecord, type UsageSummary } from './usage.ts';
 import type { Answer, CodeSymbol, Entry, ObservedEdge, RepoSnapshot, ResolvedCitation, Run, StaticEdge, TraceEvent } from './schema.ts';
 
 export interface SourceRef { kind: string; ref: string; name?: string }
@@ -59,8 +60,22 @@ export class Studio {
   private indexRepo(project: Project, repo: ImportedRepo): RepoSnapshot {
     const latest = this.store.latestSnapshot(project.id);
     if (latest && latest.snapshotHash === repo.snapshotHash) return latest;
-    return this.store.saveSnapshot(project.id, repo, indexSources(repo.files, repo.contents), INDEXER_VERSION);
+    const started = performance.now();
+    const snap = this.store.saveSnapshot(project.id, repo, indexSources(repo.files, repo.contents), INDEXER_VERSION);
+    this.record({ kind: 'index', projectId: project.id, provider: INDEXER_VERSION, started, ok: true, detail: `${repo.files.length} files` });
+    return snap;
   }
+
+  private record(r: { kind: UsageKind; projectId: string | null; provider: string; started: number; ok: boolean; detail: string; usage?: ModelUsage }): void {
+    const rec: UsageRecord = { ...(r.usage ?? UNKNOWN_USAGE), id: newId('use'), at: new Date().toISOString(), kind: r.kind, projectId: r.projectId,
+      provider: r.provider, durationMs: performance.now() - r.started, ok: r.ok, detail: r.detail.slice(0, MAX_NOTE) };
+    this.store.recordUsage(rec);
+  }
+
+  /** Usage shared back to every interface; `projectId` narrows it to one project. */
+  usage(projectId?: string): UsageSummary { return summarizeUsage(this.store.usage(projectId)); }
+
+  usageRecords(projectId?: string): UsageRecord[] { return this.store.usage(projectId); }
 
   /** Re-read the source; a changed snapshot hash creates a new snapshot and makes older runs stale. */
   refresh(projectId: string): RepoSnapshot {
@@ -142,6 +157,7 @@ export class Studio {
     if (project.sourceKind === 'bundle') throw new ValidationError('imported bundles are inspect-only; they cannot be executed');
     const snap = this.refresh(projectId);
     const timeoutMs = Math.min(Math.max(options.timeoutMs ?? RUN_TIMEOUT.default, RUN_TIMEOUT.min), RUN_TIMEOUT.max);
+    const started = performance.now();
     const result = await executeRun(this.opts.sandbox, {
       projectId, snapshotId: snap.id, snapshotHash: snap.snapshotHash, contents: this.store.contents(snap.id),
       fileHashes: Object.fromEntries(snap.files.map(f => [f.path, f.hash])), symbols: this.store.symbols(snap.id),
@@ -149,6 +165,7 @@ export class Studio {
     });
     if (this.refresh(projectId).snapshotHash !== snap.snapshotHash) throw new ValidationError('source changed during execution; run discarded');
     this.store.saveRun(result.run, result.events);
+    this.record({ kind: 'run', projectId, provider: this.opts.sandbox.name, started, ok: result.run.status === 'ok', detail: `${result.run.id} ${result.run.status} ${result.events.length} events` });
     return { run: this.withFreshness(result.run, snap), events: result.events };
   }
 
@@ -177,7 +194,15 @@ export class Studio {
 
   async ask(projectId: string, question: string): Promise<Answer> {
     if (!this.opts.model) throw new ModelUnavailableError('no local model configured; maps, traces and citations still work');
-    return askQuestion(question, this.opts.model, this.citationContext(projectId));
+    const started = performance.now();
+    try {
+      const answer = await askQuestion(question, this.opts.model, this.citationContext(projectId));
+      this.record({ kind: 'model', projectId, provider: this.opts.model.name, started, ok: true, detail: answer.abstained ? 'abstained' : 'answered', usage: answer.usage ?? undefined });
+      return answer;
+    } catch (error) {
+      if (!(error instanceof ModelUnavailableError)) this.record({ kind: 'model', projectId, provider: this.opts.model.name, started, ok: false, detail: (error as Error).message });
+      throw error;
+    }
   }
 
   exportBundle(projectId: string): EvidenceBundle {

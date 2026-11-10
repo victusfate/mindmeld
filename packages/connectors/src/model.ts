@@ -8,7 +8,7 @@ import { spawn, spawnSync } from 'node:child_process';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type { ChatMessage, ModelConnector, ModelStatus } from '@mindmeld/core';
+import { UNKNOWN_USAGE, type ChatMessage, type ChatReply, type ModelConnector, type ModelStatus, type ModelUsage } from '@mindmeld/core';
 
 export type CliProvider = 'claude' | 'codex' | 'agy' | 'pi';
 export const CLI_PROVIDERS: CliProvider[] = ['claude', 'codex', 'agy', 'pi'];
@@ -20,13 +20,47 @@ const MAX_REASON = 200;
 /** `{out}` is replaced by a temp file path for CLIs that write their final message to a file. */
 const OUT = '{out}';
 
-interface Preset { args: string[]; readsFile: boolean; verified: boolean }
+type Parser = (stdout: string, file: string | null) => ChatReply;
+interface Preset { args: string[]; parse: Parser; verified: boolean }
+type Json = Record<string, unknown>;
+const num = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : null);
+const obj = (v: unknown): Json => (v && typeof v === 'object' && !Array.isArray(v) ? v as Json : {});
+function tryJson(text: string): Json | null {
+  try { return obj(JSON.parse(text)); } catch { return null; }
+}
+
+/** Plain text; the CLI reports no usage, so every usage field is unknown. */
+const parseText: Parser = (stdout, file) => ({ text: file ?? stdout, usage: UNKNOWN_USAGE });
+
+/** `claude -p --output-format json`: {result, usage{...}, total_cost_usd, modelUsage{<model>: {...}}}. */
+export const parseClaude: Parser = (stdout, file) => {
+  const j = tryJson(stdout);
+  if (!j || typeof j.result !== 'string') return parseText(stdout, file);
+  const u = obj(j.usage);
+  const usage: ModelUsage = {
+    model: Object.keys(obj(j.modelUsage))[0] ?? null, inputTokens: num(u.input_tokens), outputTokens: num(u.output_tokens),
+    cacheReadTokens: num(u.cache_read_input_tokens), cacheWriteTokens: num(u.cache_creation_input_tokens), costUsd: num(j.total_cost_usd),
+  };
+  return { text: j.result, usage };
+};
+
+/** `codex exec --json -o FILE`: JSONL events on stdout, `turn.completed` carries usage; the answer is in FILE. */
+export const parseCodex: Parser = (stdout, file) => {
+  let usage: ModelUsage = UNKNOWN_USAGE;
+  for (const line of stdout.split('\n')) {
+    const e = tryJson(line);
+    if (e?.type !== 'turn.completed') continue;
+    const u = obj(e.usage);
+    usage = { ...UNKNOWN_USAGE, inputTokens: num(u.input_tokens), outputTokens: num(u.output_tokens), cacheReadTokens: num(u.cached_input_tokens) };
+  }
+  return { text: file ?? '', usage };
+};
 /** `verified`: flags checked against the CLI's help. Unverified presets can be replaced with MINDMELD_MODEL_ARGS. */
 const PRESETS: Record<CliProvider, Preset> = {
-  claude: { args: ['-p', '--output-format', 'text', '--tools', '', '--no-session-persistence', '--disable-slash-commands', '--strict-mcp-config'], readsFile: false, verified: true },
-  codex: { args: ['exec', '--sandbox', 'read-only', '--skip-git-repo-check', '--ephemeral', '-o', OUT, '-'], readsFile: true, verified: true },
-  agy: { args: ['-p'], readsFile: false, verified: false },
-  pi: { args: ['-p'], readsFile: false, verified: false },
+  claude: { args: ['-p', '--output-format', 'json', '--tools', '', '--no-session-persistence', '--disable-slash-commands', '--strict-mcp-config'], parse: parseClaude, verified: true },
+  codex: { args: ['exec', '--json', '--sandbox', 'read-only', '--skip-git-repo-check', '--ephemeral', '-o', OUT, '-'], parse: parseCodex, verified: true },
+  agy: { args: ['-p'], parse: parseText, verified: false },
+  pi: { args: ['-p'], parse: parseText, verified: false },
 };
 const SECRET_ENV = /^MINDMELD_(TOKEN|.*KEY.*)$/;
 
@@ -45,6 +79,7 @@ export class CliModel implements ModelConnector {
   private readonly command: string;
   private readonly args: string[];
   private readonly readsFile: boolean;
+  private readonly parse: Parser;
   private readonly model: string | undefined;
   private readonly timeoutMs: number;
   private readonly verified: boolean;
@@ -55,6 +90,7 @@ export class CliModel implements ModelConnector {
     this.command = o.command ?? o.provider;
     this.args = o.args ?? preset.args;
     this.readsFile = this.args.includes(OUT);
+    this.parse = preset.parse;
     this.verified = !o.args && preset.verified;
     this.model = o.model;
     this.timeoutMs = o.timeoutMs ?? DEFAULT_TIMEOUT_MS;
@@ -75,10 +111,10 @@ export class CliModel implements ModelConnector {
     return Promise.resolve({ available: true, reason: `${this.command} ${probe.stdout.trim().slice(0, MAX_REASON)}${note}`, model: this.model ?? this.name });
   }
 
-  chat(messages: ChatMessage[], options: { signal?: AbortSignal } = {}): Promise<string> {
+  chat(messages: ChatMessage[], options: { signal?: AbortSignal } = {}): Promise<ChatReply> {
     const cwd = mkdtempSync(join(tmpdir(), 'mindmeld-model-'));
     const out = join(cwd, 'answer.txt');
-    return new Promise<string>((resolve, reject) => {
+    return new Promise<ChatReply>((resolve, reject) => {
       const child = spawn(this.command, this.argv(out), { cwd, env: cleanEnv(), stdio: ['pipe', 'pipe', 'pipe'], signal: options.signal, timeout: this.timeoutMs, killSignal: 'SIGKILL' });
       let stdout = '', stderr = '';
       child.stdout.on('data', (c: Buffer) => { if (stdout.length < MAX_OUTPUT) stdout += c.toString('utf8'); });
@@ -86,7 +122,7 @@ export class CliModel implements ModelConnector {
       child.on('error', reject);
       child.on('close', code => {
         if (code !== 0) { reject(new Error(`${this.command} exited ${String(code)}: ${stderr.trim().slice(0, MAX_REASON)}`)); return; }
-        resolve(this.readsFile ? readFileSync(out, 'utf8') : stdout);
+        resolve(this.parse(stdout, this.readsFile ? readFileSync(out, 'utf8') : null));
       });
       child.stdin.end(flattenMessages(messages));
     }).finally(() => rmSync(cwd, { recursive: true, force: true }));

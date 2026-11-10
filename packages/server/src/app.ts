@@ -94,6 +94,7 @@ function routes(studio: Studio): Route[] {
     }),
     route('GET', '/api/projects/:id/bundle', ({ params }) => studio.exportBundle(params.id)),
     route('POST', '/api/bundles', async ({ body }) => studio.importBundle(await body()), MAX_BUNDLE_BODY),
+    route('GET', '/api/usage', ({ query }) => studio.usage(query.get('projectId') ?? undefined)),
     route('GET', '/api/runs/:id', ({ params }) => studio.run(params.id)),
     route('GET', '/api/runs/:a/diff/:b', ({ params }) => studio.diff(params.a, params.b)),
   ];
@@ -129,6 +130,13 @@ function serveStatic(res: ServerResponse, webDir: string | undefined, pathname: 
   res.end(readFileSync(file));
 }
 
+/** JSONL, one usage record per line: the format to share usage back (attach to an issue, feed a dashboard). */
+function exportUsage(res: ServerResponse, studio: Studio, url: URL): void {
+  res.setHeader('content-type', 'application/x-ndjson; charset=utf-8');
+  res.setHeader('content-disposition', 'attachment; filename="mindmeld-usage.jsonl"');
+  res.end(studio.usageRecords(url.searchParams.get('projectId') ?? undefined).map(r => JSON.stringify(r)).join('\n') + '\n');
+}
+
 function login(req: IncomingMessage, res: ServerResponse, url: URL, policy: Policy): void {
   if (!sameToken(url.searchParams.get('token') ?? undefined, policy.token)) { send(res, HTTP.unauthorized, { error: 'invalid token' }); return; }
   res.statusCode = HTTP.seeOther;
@@ -159,17 +167,21 @@ export function startServer(options: ServerOptions): Promise<RunningServer> {
   const token = options.token ?? randomBytes(TOKEN_BYTES).toString('base64url');
   const table = routes(options.studio);
   const policy: Policy = { token, allowedHosts: new Set(), allowedOrigins: new Set() };
+  const handle = ({ req, res, url, isApi }: { req: IncomingMessage; res: ServerResponse; url: URL; isApi: boolean }): void => {
+    if (url.pathname === '/api/health') { send(res, HTTP.ok, { ok: true, apiVersion: API_VERSION }); return; }
+    if (url.pathname === '/auth') { login(req, res, url, policy); return; }
+    if (url.pathname === '/api/usage/export' && req.method === 'GET') { exportUsage(res, options.studio, url); return; }
+    if (isApi) { void dispatch(req, res, table, url); return; }
+    if (req.method !== 'GET' && req.method !== 'HEAD') { send(res, HTTP.notAllowed, { error: 'method not allowed' }); return; }
+    serveStatic(res, options.webDir, url.pathname);
+  };
   const server = createServer((req, res) => {
     securityHeaders(res);
     const url = new URL(req.url ?? '/', 'http://localhost');
     const isApi = url.pathname.startsWith('/api/');
     const denied = checkRequest(req, policy, isApi && url.pathname !== '/api/health');
     if (denied) { send(res, denied.status, { error: denied.message }); return; }
-    if (url.pathname === '/api/health') { send(res, HTTP.ok, { ok: true, apiVersion: API_VERSION }); return; }
-    if (url.pathname === '/auth') { login(req, res, url, policy); return; }
-    if (isApi) { void dispatch(req, res, table, url); return; }
-    if (req.method !== 'GET' && req.method !== 'HEAD') { send(res, HTTP.notAllowed, { error: 'method not allowed' }); return; }
-    serveStatic(res, options.webDir, url.pathname);
+    handle({ req, res, url, isApi });
   });
   server.requestTimeout = REQUEST_TIMEOUT_MS;
   return new Promise((resolve, reject) => {

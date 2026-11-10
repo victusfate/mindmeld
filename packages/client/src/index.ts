@@ -1,9 +1,9 @@
 // Typed client for the Studio API. Browser callers rely on the HttpOnly session cookie (pass no token);
 // Node callers (VS Code, desktop, scripts) pass the bearer token. Types are imported type-only, so the
 // browser bundle never pulls in core's Node code.
-import type { Answer, CodeSymbol, Entry, FileImport, ObservedEdge, RepoSnapshot, ResolvedCitation, Run, RunDiff, StaticEdge, TraceEvent } from '@mindmeld/core';
+import type { UsageRecord, UsageSummary, Answer, CodeSymbol, Entry, FileImport, ObservedEdge, RepoSnapshot, ResolvedCitation, Run, RunDiff, StaticEdge, TraceEvent } from '@mindmeld/core';
 
-export type { Answer, CodeSymbol, Entry, FileImport, ObservedEdge, RepoSnapshot, ResolvedCitation, Run, RunDiff, StaticEdge, TraceEvent };
+export type { UsageRecord, UsageSummary, Answer, CodeSymbol, Entry, FileImport, ObservedEdge, RepoSnapshot, ResolvedCitation, Run, RunDiff, StaticEdge, TraceEvent };
 export interface Project { id: string; name: string; sourceKind: string; sourceRef: string; root: string; createdAt: string }
 export interface Graph {
   project: Project; snapshot: RepoSnapshot; symbols: CodeSymbol[]; staticEdges: StaticEdge[]; observedEdges: ObservedEdge[];
@@ -74,6 +74,16 @@ export class StudioClient {
   citation(id: string, kind: 'symbol' | 'event', ref: string, hash?: string): Promise<ResolvedCitation> {
     const q = new URLSearchParams({ kind, ref, ...(hash ? { hash } : {}) });
     return this.call('GET', `${this.p(id)}/citation?${q.toString()}`);
+  }
+  usage(projectId?: string): Promise<UsageSummary> {
+    return this.call('GET', `/api/usage${projectId ? `?projectId=${encodeURIComponent(projectId)}` : ''}`);
+  }
+  async usageExport(projectId?: string): Promise<UsageRecord[]> {
+    const headers: Record<string, string> = this.token ? { authorization: `Bearer ${this.token}` } : {};
+    const q = projectId ? `?projectId=${encodeURIComponent(projectId)}` : '';
+    const res = await this.doFetch(`${this.base}/api/usage/export${q}`, { headers, credentials: 'same-origin' });
+    if (!res.ok) throw new ApiError(res.status, `HTTP ${res.status}`);
+    return (await res.text()).split('\n').filter(Boolean).map(line => JSON.parse(line) as UsageRecord);
   }
   exportBundle(id: string): Promise<unknown> { return this.call('GET', `${this.p(id)}/bundle`); }
   importBundle(bundle: unknown): Promise<Project> { return this.call('POST', '/api/bundles', bundle); }

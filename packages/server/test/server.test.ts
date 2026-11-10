@@ -111,3 +111,14 @@ test('oversized and malformed bodies are rejected', async () => {
   });
   assert.equal(bad, 400);
 });
+
+test('usage summary and JSONL export are shared back over the API', async () => {
+  const summary = await call('GET', '/api/usage');
+  assert.equal(summary.status, 200);
+  assert.ok(summary.json.totals.count >= 1);
+  const exported = await call('GET', '/api/usage/export');
+  assert.match(String(exported.headers['content-type']), /ndjson/);
+  const rows = exported.body.trim().split('\n').map(l => JSON.parse(l));
+  assert.equal(rows.length, summary.json.totals.count);
+  assert.equal((await call('GET', '/api/usage/export', { headers: { authorization: '' } })).status, 401);
+});

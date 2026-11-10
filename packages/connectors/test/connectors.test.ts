@@ -5,7 +5,7 @@ import { cpSync, mkdtempSync, writeFileSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { EvidenceStore, Studio, SandboxUnavailableError } from '@mindmeld/core';
-import { OciSandbox, DisabledSandbox, CliModel, flattenMessages, checkGitUrl, GitSource, LocalDirectorySource, connectorsFromEnv } from '../src/index.ts';
+import { OciSandbox, DisabledSandbox, CliModel, flattenMessages, parseClaude, parseCodex, checkGitUrl, GitSource, LocalDirectorySource, connectorsFromEnv } from '../src/index.ts';
 
 const FIXTURE = new URL('../../../fixtures/combat-game', import.meta.url).pathname;
 const hero = { name: 'hero', hp: 10, attack: 7, armor: 1 };
@@ -88,14 +88,14 @@ test('agent CLI models: prompt on stdin, tools off, empty cwd, no Studio secrets
   try {
     const claude = new CliModel({ provider: 'claude', command: bin, model: 'sonnet' });
     assert.equal((await claude.status()).available, true);
-    const reply = JSON.parse(await claude.chat([{ role: 'system', content: 'rules' }, { role: 'user', content: 'question?' }]));
+    const reply = JSON.parse((await claude.chat([{ role: 'system', content: 'rules' }, { role: 'user', content: 'question?' }])).text);
     assert.deepEqual(reply.args.slice(0, 2), ['--model', 'sonnet']);
     assert.ok(reply.args.includes('--tools') && reply.args[reply.args.indexOf('--tools') + 1] === '');
     assert.match(reply.input, /# Instructions\nrules[\s\S]*# Request\nquestion\?/);
     assert.equal(reply.token, null);
     assert.match(reply.cwd, /mindmeld-model-/);
     const codex = new CliModel({ provider: 'codex', command: bin });
-    const viaFile = JSON.parse(await codex.chat([{ role: 'user', content: 'q' }]));
+    const viaFile = JSON.parse((await codex.chat([{ role: 'user', content: 'q' }])).text);
     assert.ok(viaFile.args.includes('--sandbox') && viaFile.args.includes('read-only'));
     assert.equal(viaFile.input, '# Request\nq');
   } finally { delete process.env.MINDMELD_TOKEN; }
@@ -104,11 +104,22 @@ test('agent CLI models: prompt on stdin, tools off, empty cwd, no Studio secrets
   assert.equal(flattenMessages([{ role: 'assistant', content: 'a' }]), '# Previous answer\na');
 });
 
+test('CLI usage parsers read reported usage and leave the rest unknown', () => {
+  const claude = parseClaude(JSON.stringify({ result: 'hi', total_cost_usd: 0.01, usage: { input_tokens: 3, output_tokens: 4, cache_read_input_tokens: 5, cache_creation_input_tokens: 6 }, modelUsage: { 'm-1': {} } }), null);
+  assert.deepEqual(claude, { text: 'hi', usage: { model: 'm-1', inputTokens: 3, outputTokens: 4, cacheReadTokens: 5, cacheWriteTokens: 6, costUsd: 0.01 } });
+  assert.deepEqual(parseClaude('plain text', null).usage.costUsd, null);
+  const codex = parseCodex(['{"type":"thread.started"}', '{"type":"turn.completed","usage":{"input_tokens":10,"cached_input_tokens":2,"output_tokens":7}}'].join('\n'), 'answer');
+  assert.equal(codex.text, 'answer');
+  assert.deepEqual([codex.usage.inputTokens, codex.usage.outputTokens, codex.usage.cacheReadTokens, codex.usage.costUsd], [10, 7, 2, null]);
+});
+
 test('real claude CLI answers through the connector', { skip: process.env.RUN_MINDMELD_CLI_MODEL !== '1' && 'set RUN_MINDMELD_CLI_MODEL=1 to call the installed claude CLI' }, async () => {
   const model = new CliModel({ provider: 'claude' });
   assert.equal((await model.status()).available, true);
   const answer = await model.chat([{ role: 'system', content: 'Reply with exactly the word: pong' }, { role: 'user', content: 'ping' }]);
-  assert.match(answer, /pong/i);
+  assert.match(answer.text, /pong/i);
+  assert.ok((answer.usage.outputTokens ?? 0) > 0, 'claude reports token usage');
+  assert.ok(answer.usage.costUsd !== null && answer.usage.model !== null);
 });
 
 test('git source: https only, no credentials, hooks disabled, clones a real repo', async () => {
