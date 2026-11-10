@@ -14,7 +14,8 @@
     "test:mind-meld:sandbox": "RUN_MIND_MELD_SANDBOX=1 node scripts/mind-meld.test.ts",
     "studio:typecheck": "tsc -p packages/tsconfig.json",
     "studio:test": "npm run test --workspaces --if-present",
-    "studio:start": "node packages/server/src/cli.ts"
+    "studio:start": "node packages/server/src/cli.ts",
+    "studio:coverage": "npm run test:coverage --workspaces --if-present"
   },
   "bin": {
     "scaffold": "./bin/sync"

@@ -165,3 +165,51 @@ test('environment config builds fail-closed defaults', () => {
   const codex = connectorsFromEnv({ MINDMELD_MODEL_PROVIDER: 'codex' }, tmpdir());
   assert.equal(codex.model?.name, 'codex-cli');
 });
+
+test('environment config: sandbox kinds, provider selection, arg overrides, git toggle', () => {
+  const env = (o: Record<string, string>) => connectorsFromEnv({ MINDMELD_MODEL_PROVIDER: 'none', ...o }, tmpdir());
+  assert.equal(env({ MINDMELD_SANDBOX: 'podman' }).sandbox.name, 'podman-oci');
+  assert.equal(env({}).sandbox.name, 'docker-oci');
+  assert.equal(env({ MINDMELD_SANDBOX: 'firejail' }).sandbox.name, 'disabled');
+  assert.equal(env({ MINDMELD_SANDBOX_IMAGE: 'mine:1' }).sandbox.image, 'mine:1');
+  assert.deepEqual(env({}).sources.map(s => s.kind), ['local', 'git']);
+  assert.deepEqual(env({ MINDMELD_GIT: 'off' }).sources.map(s => s.kind), ['local']);
+  const badArgs = connectorsFromEnv({ MINDMELD_MODEL_PROVIDER: 'pi', MINDMELD_MODEL_ARGS: 'not json' }, tmpdir());
+  assert.equal(badArgs.model?.name, 'pi-cli');
+  assert.match(badArgs.notes[0], /not a JSON array/);
+  const custom = connectorsFromEnv({ MINDMELD_MODEL_PROVIDER: 'agy', MINDMELD_MODEL_ARGS: '["run","--quiet"]', MINDMELD_MODEL_COMMAND: '/opt/agy' }, tmpdir());
+  assert.equal(custom.model?.name, 'agy-cli');
+  const auto = connectorsFromEnv({ MINDMELD_MODEL_PROVIDER: 'auto', PATH: '' }, tmpdir());
+  assert.ok(auto.model === null || auto.model.name.endsWith('-cli'));
+});
+
+test('CLI model failures surface as errors, never as answers', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mm-cli-fail-'));
+  const bin = join(dir, 'failing.cjs');
+  writeFileSync(bin, "#!/usr/bin/env node\nif (process.argv[2] === '--version') { console.log('x'); process.exit(0); }\nprocess.stdin.resume(); process.stdin.on('end', () => { console.error('not logged in'); process.exit(3); });\n", { mode: 0o755 });
+  await assert.rejects(new CliModel({ provider: 'claude', command: bin }).chat([{ role: 'user', content: 'q' }]), /exited 3: not logged in/);
+  await assert.rejects(new CliModel({ provider: 'claude', command: join(dir, 'missing') }).chat([{ role: 'user', content: 'q' }]), /ENOENT/);
+  const plain = await new CliModel({ provider: 'pi', command: fakeCli() }).chat([{ role: 'user', content: 'q' }]);
+  assert.deepEqual(plain.usage, { model: null, inputTokens: null, outputTokens: null, cacheReadTokens: null, cacheWriteTokens: null, costUsd: null });
+});
+
+test('local source rejects files; git rejects failed clones', async () => {
+  await assert.rejects(new LocalDirectorySource().materialize(join(FIXTURE, 'package.json')), /must be a directory/);
+  const git = new GitSource({ cacheDir: mkdtempSync(join(tmpdir(), 'mm-cache-')), allowFileProtocol: true });
+  await assert.rejects(git.materialize(`file://${mkdtempSync(join(tmpdir(), 'mm-empty-'))}/nope`), /git clone failed/);
+});
+
+test('OCI sandbox refuses comma paths and records exit/timeout from a fake runtime', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mm-oci-fake-'));
+  const bin = join(dir, 'fake-docker.cjs');
+  writeFileSync(bin, "#!/usr/bin/env node\nconst a = process.argv.slice(2);\nif (a[0] === 'run') { console.log('out'); process.exit(a.includes('spin') ? 137 : 0); }\nprocess.exit(0);\n", { mode: 0o755 });
+  const comma = mkdtempSync(join(tmpdir(), 'a,b-'));
+  assert.throws(() => new OciSandbox().runArgs({ workdir: comma, command: ['x'], timeoutMs: 1000, memoryMb: 64 }, 'n'), /commas/);
+  const box = new OciSandbox({ binary: bin as 'docker' });
+  const ok = await box.run({ workdir: dir, command: ['node'], timeoutMs: 1000, memoryMb: 64 });
+  assert.deepEqual([ok.exitCode, ok.timedOut, ok.stdout.trim()], [0, false, 'out']);
+  const killed = await box.run({ workdir: dir, command: ['spin'], timeoutMs: 1000, memoryMb: 64 });
+  assert.equal(killed.timedOut, true);
+  await assert.rejects(new OciSandbox({ binary: join(dir, 'none') as 'docker' }).run({ workdir: dir, command: [], timeoutMs: 1000, memoryMb: 64 }), /failed to start/);
+  await assert.rejects(new DisabledSandbox('off').run(), /execution unavailable: off/);
+});
