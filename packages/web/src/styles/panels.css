@@ -50,5 +50,5 @@ th { color: var(--muted); font-weight: 500; }
 .bar { display: block; height: 8px; border-radius: 4px; background: var(--surface-2); border: 1px solid var(--border); overflow: hidden; }
 .bar-fill { display: block; height: 100%; background: var(--accent); }
 .bar-fill.high { background: var(--warn); }
-.grid { margin-bottom: 8px; }
+.grid { margin-bottom: 8px; table-layout: auto; }
 .recent { padding-left: 0; list-style: none; display: grid; gap: 4px; }

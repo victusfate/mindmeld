@@ -3,7 +3,7 @@
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
-import { mkdtempSync } from 'node:fs';
+import { appendFileSync, mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { EvidenceStore, Studio } from '@mindmeld/core';
@@ -36,17 +36,19 @@ test('studio UI: import, map, allowlist, run, replay, compare, ask, usage, avail
   const problems: string[] = [];
   page.on('console', (m: any) => { if (m.type() === 'error') problems.push(m.text()); });
   page.on('pageerror', (e: Error) => problems.push(e.message));
+  const shot = (name: string): Promise<unknown> => page.screenshot({ path: SCREENSHOT.replace(/\.png$/, `-${name}.png`) });
 
   await page.goto(`${srv.url}/auth?token=e2e-token-0123456789`);
   await page.getByRole('button', { name: 'Import', exact: true }).click();
-  await page.locator('#import-ref').fill(copyFixture());
+  const repo = copyFixture();
+  await page.locator('#import-ref').fill(repo);
   await page.locator('form.import-form button[type=submit]').click();
 
   await page.locator('[data-symbol="src/combat.ts#legacyCritical"]').waitFor(WAIT);
   const legacy = page.locator(`.react-flow__edge.edge-static[data-id="${LEGACY_EDGE}"]`);
   await legacy.waitFor({ state: 'attached', ...WAIT });
   assert.equal(await page.locator('.react-flow__edge.edge-observed').count(), 0, 'no observed edges before any run');
-  await page.screenshot({ path: SCREENSHOT.replace('.png', '-map.png') });
+  await shot('map');
 
   await page.locator('[data-symbol="src/game.ts#playTurn"]').click();
   await page.getByRole('button', { name: 'Allowlist as entry' }).click();
@@ -71,6 +73,7 @@ test('studio UI: import, map, allowlist, run, replay, compare, ask, usage, avail
   await page.getByTestId('compare-A').selectOption({ index: 2 });
   await page.getByTestId('compare-B').selectOption({ index: 1 });
   await page.getByTestId('only-b').getByText('legacyCritical').waitFor(WAIT);
+  await shot('compare');
 
   await page.getByRole('tab', { name: 'ask' }).click();
   await page.locator('#question').fill('What does playTurn do?');
@@ -84,6 +87,7 @@ test('studio UI: import, map, allowlist, run, replay, compare, ask, usage, avail
   assert.match(usageLine, /\$0\.0010/);
   await page.getByTestId('reveal-unsupported').click();
   await page.getByTestId('unsupported').getByText('emails the player').waitFor(WAIT);
+  await shot('ask');
 
   await page.getByTestId('usage-chip').getByText('$0.0010').waitFor(WAIT);
   await page.getByRole('tab', { name: 'replay' }).click();
@@ -91,6 +95,16 @@ test('studio UI: import, map, allowlist, run, replay, compare, ask, usage, avail
   await page.getByTestId('usage-chip').click();
   assert.equal(await page.getByTestId('usage-cost').textContent(), '$0.0010');
   await page.getByTestId('usage-windows').waitFor(WAIT);
+  await page.emulateMedia({ colorScheme: 'dark' });
+  await shot('usage-dark');
+  await page.emulateMedia({ colorScheme: 'light' });
+
+  appendFileSync(join(repo, 'src/combat.ts'), '\n// edited after the runs\n');
+  await page.getByRole('button', { name: 'Refresh', exact: true }).click();
+  await page.getByTestId('stale-runs').getByText('2 stale runs not drawn').waitFor(WAIT);
+  assert.equal(await page.locator('.react-flow__edge.edge-observed').count(), 0, 'stale runs add no observed edges');
+  await page.getByRole('tab', { name: 'run' }).click();
+  assert.equal(await page.getByTestId('runs').locator('.badge-stale').count(), 2);
 
   sandbox.available = false;
   await page.reload();
@@ -99,6 +113,9 @@ test('studio UI: import, map, allowlist, run, replay, compare, ask, usage, avail
   assert.equal(await page.getByTestId('run-button').isDisabled(), true);
   await page.locator('[data-symbol="src/game.ts#playTurn"]').click();
   await page.locator('.code li.hl').first().waitFor(WAIT);
+  await shot('sandbox-off');
+  await page.setViewportSize({ width: 390, height: 844 });
+  await shot('narrow');
 
   assert.deepEqual(problems, [], `console errors or CSP violations: ${problems.join('\n')}`);
 });

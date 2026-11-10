@@ -9,7 +9,7 @@ import type { Report } from '../hooks.ts';
 
 interface Props {
   status: Status | null; projects: Project[]; project: Project | null; usage: UsageSummary | null;
-  onChoose: (id: string) => void; onAdded: (p: Project) => Promise<void>; onUsage: () => void; report: Report;
+  onChoose: (id: string) => void; onAdded: (p: Project) => Promise<void>; onRefreshed: () => Promise<void>; onUsage: () => void; report: Report;
 }
 
 function Chip({ label, ok, reason }: { label: string; ok: boolean | null; reason: string }) {
@@ -59,6 +59,10 @@ function ImportForm({ onAdded, report, onDone }: { onAdded: Props['onAdded']; re
   );
 }
 
+async function refresh(project: Project, onRefreshed: () => Promise<void>, report: Report): Promise<void> {
+  try { await api.refresh(project.id); await onRefreshed(); } catch (e) { report(`Refresh failed: ${errorMessage(e)}`); }
+}
+
 async function exportBundle(project: Project, report: Report): Promise<void> {
   try {
     const bundle = await api.exportBundle(project.id);
@@ -87,6 +91,8 @@ export function Header(p: Props) {
           {p.projects.map(x => <option key={x.id} value={x.id}>{x.name}</option>)}
         </select>
         <button type="button" onClick={() => setImporting(v => !v)} aria-expanded={importing}>Import</button>
+        <button type="button" disabled={!p.project} onClick={() => p.project && void refresh(p.project, p.onRefreshed, p.report)}
+          title="Re-read the source; runs of changed files become stale">Refresh</button>
         <button type="button" disabled={!p.project} onClick={() => p.project && void exportBundle(p.project, p.report)}>Export bundle</button>
         <label className="button file-button">Import bundle
           <input type="file" accept="application/json,.json" className="sr-only" onChange={e => { const f = e.target.files?.[0]; if (f) void importBundle(f, p.onAdded, p.report); e.target.value = ''; }} />

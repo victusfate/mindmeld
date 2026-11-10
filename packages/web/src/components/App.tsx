@@ -49,7 +49,7 @@ export function App() {
   return (
     <div className="app">
       <Header status={status} projects={projects} project={project} usage={usage} onChoose={chooseProject} onAdded={added}
-        onUsage={() => setTab('usage')} report={report} />
+        onRefreshed={data.reload} onUsage={() => setTab('usage')} report={report} />
       <Banner status={status} />
       <main className="workspace">
         <section className="map-pane" aria-label="Architecture map">
