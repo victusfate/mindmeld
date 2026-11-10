@@ -1,7 +1,7 @@
 // Evidence contracts (schema version 2). Static edges are *possible* relationships; observed edges come only
 // from recorded events; model output is an interpretation that must cite one of the two or say "unknown".
 
-import type { ModelUsage } from './usage.ts';
+import type { ModelUsage, ProviderLimit } from './usage.ts';
 
 export const SCHEMA_VERSION = 2;
 
@@ -120,4 +120,6 @@ export interface Answer {
   model: string | null;
   /** Model usage for this answer as reported by the CLI (null fields = not reported). No model call → zeros. */
   usage: ModelUsage | null;
+  /** Provider plan windows reported with this answer (e.g. five_hour, seven_day); absent/null when unknown. */
+  limits?: ProviderLimit[] | null;
 }
