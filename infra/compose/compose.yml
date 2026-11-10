@@ -1,0 +1,40 @@
+# Mind Meld Studio with a local Ollama model. From the repository root:
+#   docker compose -f infra/compose/compose.yml up -d --build
+#   docker compose -f infra/compose/compose.yml exec ollama ollama pull qwen2.5-coder:7b
+#   docker compose -f infra/compose/compose.yml logs studio   # prints the one-time login URL
+# Execution is OFF in this file (static maps, replay of imported bundles and Q&A still work).
+# To enable sandboxed execution add infra/compose/compose.sandbox.yml — read its warning first.
+name: mindmeld
+services:
+  studio:
+    build:
+      context: ../..
+      dockerfile: infra/docker/Dockerfile
+    image: mindmeld-studio:local
+    init: true
+    ports:
+      - "127.0.0.1:8787:8787"          # loopback only; the API also checks Host/Origin and a token
+    environment:
+      MINDMELD_TOKEN: ${MINDMELD_TOKEN:-}
+      MINDMELD_MODEL_PROVIDER: ollama
+      MINDMELD_MODEL_ENDPOINT: http://ollama:11434
+      MINDMELD_MODEL_ALLOW_HOSTS: ollama
+      MINDMELD_MODEL: ${MINDMELD_MODEL:-qwen2.5-coder:7b}
+      MINDMELD_ALLOWED_ROOTS: /workspace
+      MINDMELD_ALLOWED_HOSTS: localhost
+    volumes:
+      - studio-data:/data
+      - ${MINDMELD_WORKSPACE:-../../fixtures}:/workspace:ro
+    read_only: true
+    tmpfs: ["/tmp"]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    depends_on: [ollama]
+  ollama:
+    image: ollama/ollama:0.12.3
+    volumes:
+      - ollama-models:/root/.ollama
+    # No published port: only the studio service can reach the model.
+volumes:
+  studio-data:
+  ollama-models:

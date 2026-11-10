@@ -33,6 +33,8 @@ export interface RunRequest {
   timeoutMs?: number;
   memoryMb?: number;
   maxEvents?: number;
+  /** Where run workspaces are created. A containerised Studio talking to the host daemon needs a path that exists on both. */
+  workRoot?: string;
 }
 
 const MAX_TEXT = 4000;
@@ -41,9 +43,11 @@ const MAX_STDOUT = 20_000;
 export class SandboxUnavailableError extends Error {}
 export class TraceRejectedError extends Error {}
 
-function workspace(contents: Map<string, string>): string {
-  const dir = mkdtempSync(join(tmpdir(), 'mindmeld-run-'));
+function workspace(contents: Map<string, string>, root: string): string {
+  mkdirSync(root, { recursive: true });
+  const dir = mkdtempSync(join(root, 'mindmeld-run-'));
   for (const [path, text] of instrumentProject(contents)) {
+    if (path === 'package.json' || path === HARNESS_FILE) continue;   // ours win: the emitted tree is always ESM
     const target = join(dir, path);
     mkdirSync(dirname(target), { recursive: true });
     writeFileSync(target, text, { mode: 0o444 });
@@ -128,7 +132,7 @@ export async function executeRun(sandbox: SandboxConnector, req: RunRequest): Pr
     durationMs: 0, sandbox: sandboxIdentity(sandbox, timeoutMs, memoryMb), runtimeVersion: status.runtime ?? 'unknown', fileHashes: req.fileHashes,
   };
   const attempt: Attempt = { req, runId, inputs, base, maxEvents, marker: `@@MINDMELD:${randomBytes(MARKER_BYTES).toString('hex')}@@` };
-  const dir = workspace(req.contents);
+  const dir = workspace(req.contents, req.workRoot ?? tmpdir());
   const started = performance.now();
   try {
     const result = await sandbox.run({ workdir: dir, timeoutMs, memoryMb, command: ['node', `/app/${HARNESS_FILE}`,

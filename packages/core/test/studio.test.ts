@@ -125,3 +125,22 @@ test('bundles round-trip and tampered bundles are rejected', async () => {
   assert.throws(() => studio.importBundle(forged), /invalid trace event/);
   await assert.rejects(studio.execute(imported.id, entry.id, []), ValidationError);
 });
+
+test('run workspace files are written read-only and the harness package.json wins over the repo one', async () => {
+  const { studio, project, entry } = await setup();
+  const { mkdtempSync, readdirSync, statSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const root = mkdtempSync(join(tmpdir(), 'mm-runroot-'));
+  studio.opts.runDir = root;
+  const seen: string[] = [];
+  const original = studio.opts.sandbox.run.bind(studio.opts.sandbox);
+  studio.opts.sandbox.run = spec => {
+    seen.push(readFileSync(join(spec.workdir, 'package.json'), 'utf8'));
+    assert.equal(statSync(join(spec.workdir, 'src/game.js')).mode & 0o222, 0, 'emitted source must not be writable');
+    return original(spec);
+  };
+  const { run } = await studio.execute(project.id, entry.id, [hero, slime]);
+  assert.equal(run.status, 'ok');
+  assert.deepEqual(JSON.parse(seen[0]), { type: 'module', private: true });
+  assert.deepEqual(readdirSync(root), [], 'run workspace is removed afterwards');
+});

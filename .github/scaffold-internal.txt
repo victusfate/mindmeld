@@ -92,3 +92,5 @@ tools/hoist-skill/references.test.ts
 packages/**
 fixtures/**
 infra/**
+.github/workflows/studio.yml
+.dockerignore

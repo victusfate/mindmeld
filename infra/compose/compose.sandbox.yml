@@ -1,0 +1,20 @@
+# Opt-in sandboxed execution for the containerised Studio:
+#   sudo mkdir -p /var/tmp/mindmeld-runs && sudo chmod 1777 /var/tmp/mindmeld-runs
+#   docker pull node:26-alpine
+#   DOCKER_GID=$(getent group docker | cut -d: -f3) docker compose -f infra/compose/compose.yml -f infra/compose/compose.sandbox.yml up -d
+#
+# WARNING: mounting the Docker socket gives the Studio container control of the host's Docker daemon
+# (root-equivalent). Studio only ever starts `--network=none --read-only --cap-drop=ALL` children with
+# --pull=never, but the trust boundary is the Studio process itself. On a workstation prefer running Studio
+# natively (`npm run studio:start`) or use rootless Docker/Podman (MINDMELD_SANDBOX=podman).
+# The run directory is bind-mounted at the SAME path so the host daemon can see each run's workspace.
+services:
+  studio:
+    environment:
+      MINDMELD_SANDBOX: docker
+      MINDMELD_DOCKER_HOST: unix:///var/run/docker.sock
+    group_add:
+      - "${DOCKER_GID:?set DOCKER_GID to the docker group id}"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /var/tmp/mindmeld-runs:/var/tmp/mindmeld-runs

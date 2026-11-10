@@ -17,7 +17,7 @@ export interface SourceConnector {
   materialize(ref: string): Promise<{ root: string; name: string }>;
 }
 
-export interface StudioOptions { store: EvidenceStore; sandbox: SandboxConnector; model: ModelConnector | null; sources: SourceConnector[] }
+export interface StudioOptions { store: EvidenceStore; sandbox: SandboxConnector; model: ModelConnector | null; sources: SourceConnector[]; runDir?: string }
 export interface Graph {
   project: Project;
   snapshot: RepoSnapshot;
@@ -145,7 +145,7 @@ export class Studio {
     const result = await executeRun(this.opts.sandbox, {
       projectId, snapshotId: snap.id, snapshotHash: snap.snapshotHash, contents: this.store.contents(snap.id),
       fileHashes: Object.fromEntries(snap.files.map(f => [f.path, f.hash])), symbols: this.store.symbols(snap.id),
-      entry: this.symbol(projectId, entry.symbolId), inputs, timeoutMs,
+      entry: this.symbol(projectId, entry.symbolId), inputs, timeoutMs, workRoot: this.opts.runDir,
     });
     if (this.refresh(projectId).snapshotHash !== snap.snapshotHash) throw new ValidationError('source changed during execution; run discarded');
     this.store.saveRun(result.run, result.events);
