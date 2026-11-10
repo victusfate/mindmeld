@@ -63,6 +63,11 @@ export default tseslint.config(
     },
   },
   {
+    // Mind Meld Studio browser UI: runs in the page, not in Node.
+    files: ['packages/web/src/**/*.{ts,tsx}'],
+    languageOptions: { globals: { ...globals.browser } },
+  },
+  {
     // Config and plain-JS files aren't part of the TS program.
     files: ['**/*.js', '**/*.mjs', '**/*.cjs'],
     ...tseslint.configs.disableTypeChecked,

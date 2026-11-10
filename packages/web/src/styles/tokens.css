@@ -1,0 +1,32 @@
+/* Design tokens. light-dark() follows the page colour scheme, which the theme toggle sets via <meta name="color-scheme">. */
+:root {
+  --bg: light-dark(#f6f5f1, #15171a);
+  --surface: light-dark(#ffffff, #1d2024);
+  --surface-2: light-dark(#efede7, #24282d);
+  --border: light-dark(#dcd8ce, #33383f);
+  --text: light-dark(#1d1f22, #e6e4df);
+  --muted: light-dark(#6b6a66, #9a9b9c);
+  --accent: light-dark(#0f7b6c, #3cc7b0);
+  --accent-soft: light-dark(#d9efe9, #17352f);
+  --accent-text: light-dark(#ffffff, #0d1f1b);
+  --static: light-dark(#9a978e, #6e7279);
+  --warn: light-dark(#a35a00, #f0b25a);
+  --warn-soft: light-dark(#fbefd9, #3a2c14);
+  --bad: light-dark(#b42318, #ff8a80);
+  --bad-soft: light-dark(#fde8e6, #3d1d1b);
+  --ok: light-dark(#1f7a3a, #6fd58e);
+  --ok-soft: light-dark(#e3f3e7, #18321f);
+  --hl: light-dark(#fff4c2, #3a3417);
+  --focus: light-dark(#2457d6, #8fb0ff);
+  --file-0: light-dark(#2f6fde, #7aa7ff);
+  --file-1: light-dark(#b0541c, #f4a06a);
+  --file-2: light-dark(#7d4cc2, #c3a2f5);
+  --file-3: light-dark(#1d8a5b, #6dd4a3);
+  --file-4: light-dark(#b8326b, #f28cb6);
+  --file-5: light-dark(#8a7a12, #e0cf5a);
+  --file-6: light-dark(#2b8a99, #74d1df);
+  --file-7: light-dark(#5b6170, #aab0bd);
+  --radius: 8px;
+  --font: 'IBM Plex Sans', system-ui, sans-serif;
+  --mono: 'IBM Plex Mono', ui-monospace, monospace;
+}
