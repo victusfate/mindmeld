@@ -11,5 +11,5 @@
     "erasableSyntaxOnly": true,
     "types": ["node"]
   },
-  "include": ["core/src/**/*.ts", "core/test/**/*.ts", "connectors/src/**/*.ts", "connectors/test/**/*.ts", "server/src/**/*.ts", "server/test/**/*.ts"]
+  "include": ["core/src/**/*.ts", "core/test/**/*.ts", "connectors/src/**/*.ts", "connectors/test/**/*.ts", "server/src/**/*.ts", "server/test/**/*.ts", "client/src/**/*.ts", "client/test/**/*.ts"]
 }
