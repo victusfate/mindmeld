@@ -41,7 +41,11 @@ function alignedRows(ea: TraceEvent[], eb: TraceEvent[]): DiffRow[] {
   return rows;
 }
 
+/** LCS is O(n·m) memory: refuse alignments beyond this many cells instead of exhausting the process. */
+export const MAX_DIFF_CELLS = 25_000_000;
+
 export function diffRuns(a: Run, ea: TraceEvent[], b: Run, eb: TraceEvent[]): RunDiff {
+  if ((ea.length + 1) * (eb.length + 1) > MAX_DIFF_CELLS) throw new Error(`runs too large to compare (${ea.length} × ${eb.length} events)`);
   const rows = alignedRows(ea, eb);
   const first = rows.findIndex(r => r.a === null || r.b === null || !r.sameValues);
   const setA = new Set(ea.map(e => e.symbol));

@@ -111,7 +111,9 @@ function toEvidence(a: Attempt, result: SandboxResult): { run: Run; events: Trac
     return { run: { ...a.base, status: result.timedOut ? 'timeout' : 'error', error: str(error), stdout: str(result.stdout, MAX_STDOUT) }, events: [] };
   }
   const symbols = new Set(a.req.symbols.map(s => s.id));
-  const { events, meta } = parseTrace(JSON.parse(result.stdout.slice(at + a.marker.length)), a.runId, symbols, a.maxEvents);
+  let raw: unknown;
+  try { raw = JSON.parse(result.stdout.slice(at + a.marker.length)); } catch { throw new TraceRejectedError('trace is not valid JSON'); }
+  const { events, meta } = parseTrace(raw, a.runId, symbols, a.maxEvents);
   return { run: { ...a.base, status: meta.status === 'ok' ? 'ok' : 'error', output: str(meta.output), error: meta.error == null ? null : str(meta.error),
     stdout: str(result.stdout.slice(0, at), MAX_STDOUT), truncated: meta.truncated === true,
     runtimeVersion: typeof meta.runtime === 'string' ? bound(meta.runtime, MAX_RUNTIME_LABEL) : a.base.runtimeVersion }, events };

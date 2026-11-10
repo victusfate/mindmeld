@@ -72,7 +72,7 @@ export const parseCodex: Parser = (stdout, file) => {
   }
   return { text: file ?? '', usage };
 };
-/** `verified`: flags checked against the CLI's help. Unverified presets can be replaced with MINDMELD_MODEL_ARGS. */
+/** `verified`: the preset is known to run the CLI with its tools off. Unverified presets are unavailable unless MINDMELD_MODEL_ARGS supplies a tools-off invocation. */
 const PRESETS: Record<CliProvider, Preset> = {
   claude: { args: ['-p', '--output-format', 'stream-json', '--verbose', '--tools', '', '--no-session-persistence', '--disable-slash-commands', '--strict-mcp-config'], parse: parseClaude, verified: true },
   codex: { args: ['exec', '--json', '--sandbox', 'read-only', '--skip-git-repo-check', '--ephemeral', '-o', OUT, '-'], parse: parseCodex, verified: true },
@@ -108,7 +108,7 @@ export class CliModel implements ModelConnector {
     this.args = o.args ?? preset.args;
     this.readsFile = this.args.includes(OUT);
     this.parse = preset.parse;
-    this.verified = !o.args && preset.verified;
+    this.verified = preset.verified || Boolean(o.args);
     this.model = o.model;
     this.timeoutMs = o.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   }
@@ -124,8 +124,11 @@ export class CliModel implements ModelConnector {
       const why = probe.error?.message ?? probe.stderr;
       return Promise.resolve({ available: false, reason: `${this.command} CLI not usable: ${why.trim().slice(0, MAX_REASON)}`, model: this.model ?? null });
     }
-    const note = this.verified ? '' : ' (unverified flags; set MINDMELD_MODEL_ARGS if calls fail)';
-    return Promise.resolve({ available: true, reason: `${this.command} ${probe.stdout.trim().slice(0, MAX_REASON)}${note}`, model: this.model ?? this.name });
+    if (!this.verified) {
+      // Fail closed: repository text reaches the prompt, so an agent with shell/file tools must not receive it.
+      return Promise.resolve({ available: false, reason: `${this.command}: no verified way to disable its tools; set MINDMELD_MODEL_ARGS to an invocation that runs with tools off (unverified)`, model: this.model ?? null });
+    }
+    return Promise.resolve({ available: true, reason: `${this.command} ${probe.stdout.trim().slice(0, MAX_REASON)}`, model: this.model ?? this.name });
   }
 
   chat(messages: ChatMessage[], options: { signal?: AbortSignal } = {}): Promise<ChatReply> {
@@ -137,9 +140,11 @@ export class CliModel implements ModelConnector {
       child.stdout.on('data', (c: Buffer) => { if (stdout.length < MAX_OUTPUT) stdout += c.toString('utf8'); });
       child.stderr.on('data', (c: Buffer) => { if (stderr.length < MAX_OUTPUT) stderr += c.toString('utf8'); });
       child.on('error', reject);
+      child.stdin.on('error', reject);   // EPIPE when the CLI exits before reading the prompt
       child.on('close', code => {
         if (code !== 0) { reject(new Error(`${this.command} exited ${String(code)}: ${stderr.trim().slice(0, MAX_REASON)}`)); return; }
-        resolve(this.parse(stdout, this.readsFile ? readFileSync(out, 'utf8') : null));
+        try { resolve(this.parse(stdout, this.readsFile ? readFileSync(out, 'utf8') : null)); }
+        catch (error) { reject(new Error(`${this.command} produced no readable answer: ${(error as Error).message}`)); }
       });
       child.stdin.end(flattenMessages(messages));
     }).finally(() => rmSync(cwd, { recursive: true, force: true }));

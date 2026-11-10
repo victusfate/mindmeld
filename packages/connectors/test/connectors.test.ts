@@ -100,7 +100,7 @@ test('agent CLI models: prompt on stdin, tools off, empty cwd, no Studio secrets
     assert.equal(viaFile.input, '# Request\nq');
   } finally { delete process.env.MINDMELD_TOKEN; }
   assert.equal((await new CliModel({ provider: 'pi', command: '/nonexistent/pi' }).status()).available, false);
-  assert.match((await new CliModel({ provider: 'agy', command: bin }).status()).reason, /unverified/);
+
   assert.equal(flattenMessages([{ role: 'assistant', content: 'a' }]), '# Previous answer\na');
 });
 
@@ -212,4 +212,21 @@ test('OCI sandbox refuses comma paths and records exit/timeout from a fake runti
   assert.equal(killed.timedOut, true);
   await assert.rejects(new OciSandbox({ binary: join(dir, 'none') as 'docker' }).run({ workdir: dir, command: [], timeoutMs: 1000, memoryMb: 64 }), /failed to start/);
   await assert.rejects(new DisabledSandbox('off').run(), /execution unavailable: off/);
+});
+
+test('agent CLIs without a verified tools-off invocation are unavailable unless overridden', async () => {
+  const bin = fakeCli();
+  for (const provider of ['agy', 'pi'] as const) {
+    const status = await new CliModel({ provider, command: bin }).status();
+    assert.equal(status.available, false);
+    assert.match(status.reason, /no verified way to disable its tools/);
+    assert.equal((await new CliModel({ provider, command: bin, args: ['--no-tools', '-p'] }).status()).available, true);
+  }
+});
+
+test('a CLI that exits 0 without writing its answer file is an error, not a crash', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mm-cli-nofile-'));
+  const bin = join(dir, 'silent.cjs');
+  writeFileSync(bin, "#!/usr/bin/env node\nprocess.stdin.resume(); process.stdin.on('end', () => process.exit(0));\n", { mode: 0o755 });
+  await assert.rejects(new CliModel({ provider: 'codex', command: bin }).chat([{ role: 'user', content: 'q' }]), /no readable answer/);
 });

@@ -122,13 +122,18 @@ function errorStatus(error: unknown): number {
   if (error instanceof TraceRejectedError) return HTTP.unprocessable;
   if (error instanceof ValidationError) return HTTP.badRequest;
   const message = error instanceof Error ? error.message : '';
-  return /^(bundle:|git |local source|directory is outside|unknown source|question must|inputs must|entry must)/.test(message) ? HTTP.badRequest : 500;
+  return /^(bundle:|git |local source|directory is outside|unknown source|question must|inputs must|entry must|runs too large)/.test(message) ? HTTP.badRequest : 500;
 }
 
 function send(res: ServerResponse, status: number, body: unknown): void {
   res.statusCode = status;
   res.setHeader('content-type', 'application/json; charset=utf-8');
   res.end(JSON.stringify(body));
+}
+
+/** decodeURIComponent that reports malformed escapes as a 400 instead of throwing a URIError. */
+function decodeSafe(text: string): string {
+  try { return decodeURIComponent(text); } catch { throw new HttpError(HTTP.badRequest, 'malformed percent-encoding'); }
 }
 
 function serveStatic(res: ServerResponse, webDir: string | undefined, pathname: string): void {
@@ -138,7 +143,7 @@ function serveStatic(res: ServerResponse, webDir: string | undefined, pathname: 
     res.end('<!doctype html><title>Mind Meld Studio</title><p>The web UI is not built. Run <code>npm run build -w @mindmeld/web</code>.</p>');
     return;
   }
-  const rel = normalize(decodeURIComponent(pathname)).replace(/^([/\\])+/, '');
+  const rel = normalize(decodeSafe(pathname)).replace(/^([/\\])+/, '');
   let file = join(webDir, rel);
   if (!file.startsWith(webDir + sep) || !existsSync(file) || !statSync(file).isFile()) file = index;   // SPA fallback
   res.setHeader('content-type', MIME[extname(file)] ?? 'application/octet-stream');
@@ -164,8 +169,8 @@ async function dispatch(req: IncomingMessage, res: ServerResponse, table: Route[
   for (const r of table) {
     const m = r.method === req.method ? r.pattern.exec(url.pathname) : null;
     if (!m) continue;
-    const params = Object.fromEntries(r.keys.map((k, i) => [k, decodeURIComponent(m[i + 1])]));
     try {
+      const params = Object.fromEntries(r.keys.map((k, i) => [k, decodeSafe(m[i + 1])]));
       send(res, HTTP.ok, await r.handler({ req, params, query: url.searchParams, body: () => readBody(req, r.bodyLimit) }));
     } catch (error) {
       const status = errorStatus(error);
@@ -196,7 +201,8 @@ export function startServer(options: ServerOptions): Promise<RunningServer> {
     const isApi = url.pathname.startsWith('/api/');
     const denied = checkRequest(req, policy, isApi && url.pathname !== '/api/health');
     if (denied) { send(res, denied.status, { error: denied.message }); return; }
-    handle({ req, res, url, isApi });
+    try { handle({ req, res, url, isApi }); }
+    catch (error) { send(res, errorStatus(error), { error: error instanceof HttpError ? error.message : 'internal error' }); }
   });
   server.requestTimeout = REQUEST_TIMEOUT_MS;
   return new Promise((resolve, reject) => {

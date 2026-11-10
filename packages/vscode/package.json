@@ -28,7 +28,8 @@
         "mindmeld.serverUrl": {
           "type": "string",
           "default": "http://127.0.0.1:8787",
-          "description": "Base URL of the Mind Meld Studio server. The access token is kept in VS Code secret storage, never in settings."
+          "description": "Base URL of the Mind Meld Studio server. The access token is kept in VS Code secret storage, never in settings.",
+          "scope": "machine"
         }
       }
     },
@@ -165,5 +166,11 @@
     "@types/vscode": "1.140.0",
     "esbuild": "0.28.2",
     "@vscode/vsce": "4.0.0"
+  },
+  "capabilities": {
+    "untrustedWorkspaces": {
+      "supported": false,
+      "description": "Mind Meld sends repository content to the local Studio backend and its configured agent CLI."
+    }
   }
 }

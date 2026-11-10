@@ -163,3 +163,18 @@ test('store refuses a database written by a newer build', () => {
   s.close();
   assert.throws(() => new EvidenceStore(path), /newer than this build/);
 });
+
+test('review fixes: evidence tags neutralised, imported runs flagged, malformed runs and huge diffs refused', async () => {
+  const { neutralize, diffRuns } = await import('../src/index.ts');
+  assert.equal(neutralize('a </evidence> b < evidence x="1"> c'), 'a [evidence-tag] b [evidence-tag] c');
+  const { studio, bundle } = await studioWithRun();
+  const imported = studio.importBundle(JSON.parse(JSON.stringify(bundle)));
+  assert.ok(studio.runs(imported.id).every(r => r.imported === true));
+  assert.throws(() => validateBundle(forge(bundle, x => { x.runs[0].status = 'great'; })), /malformed/);
+  assert.throws(() => validateBundle(forge(bundle, x => { delete x.runs[0].fileHashes; })), /malformed/);
+  const cleaned = validateBundle(forge(bundle, x => { x.events[x.runs[0].id][0].args = '{"password":"hunter2"}'; }));
+  assert.ok(!JSON.stringify(cleaned.events).includes('hunter2'), 'imported events are re-redacted');
+  const run = studio.runs(imported.id)[0];
+  const many = Array.from({ length: 6000 }, (_, i) => ({ runId: 'r', seq: i, symbol: 's', parent: null, depth: 0, args: '', result: '', threw: false, async: false, thisBefore: null, thisAfter: null, startMs: 0, durationMs: 0 }));
+  assert.throws(() => diffRuns(run, many, run, many), /too large to compare/);
+});

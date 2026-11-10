@@ -122,3 +122,9 @@ test('usage summary and JSONL export are shared back over the API', async () => 
   assert.equal(rows.length, summary.json.totals.count);
   assert.equal((await call('GET', '/api/usage/export', { headers: { authorization: '' } })).status, 401);
 });
+
+test('malformed percent-encoding is a 400, never a crash (static and API paths)', async () => {
+  assert.equal((await call('GET', '/%E0%A4%A', { headers: { authorization: '' } })).status, 400);
+  assert.equal((await call('GET', '/api/runs/%E0%A4%A')).status, 400);
+  assert.equal((await call('GET', '/api/health')).status, 200, 'server still alive');
+});

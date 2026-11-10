@@ -7,7 +7,7 @@ Types: `packages/core/src/schema.ts`, `usage.ts`, `diff.ts`. Typed client: `pack
 
 ## Auth and transport
 
-- Listens on `127.0.0.1` (random or `MINDMELD_PORT`). `Host` must be a loopback name (or `MINDMELD_ALLOWED_HOSTS`);
+- Listens on `127.0.0.1:8787` by default (`MINDMELD_PORT`/`--port`; embedders such as the desktop app pick a random port). `Host` must be a loopback name (or `MINDMELD_ALLOWED_HOSTS`);
   a foreign `Origin` is refused (403), a foreign `Host` gets 421.
 - Every `/api/*` route except `/api/health` needs `Authorization: Bearer <token>` **or** the `mm_token` cookie
   (HttpOnly, SameSite=Strict) set by `GET /auth?token=<token>` → 303 to `/`. Cookie-authenticated non-GET requests
@@ -35,7 +35,7 @@ Types: `packages/core/src/schema.ts`, `usage.ts`, `diff.ts`. Typed client: `pack
 | `POST /api/projects/:id/ask` | `{ question }` | `Answer` incl. `usage`, `limits?` (503 without model) |
 | `GET /api/projects/:id/citation` | `?kind=symbol\|event&ref=&hash=` | `ResolvedCitation` |
 | `GET /api/projects/:id/bundle` | — | sealed `EvidenceBundle` |
-| `POST /api/bundles` | bundle JSON | `Project` (inspect-only; forged/edited bundles → 400) |
+| `POST /api/bundles` | bundle JSON | `Project` (inspect-only; inconsistent or edited bundles → 400; imported runs carry `imported: true`) |
 | `GET /api/runs/:id` | — | `{ run, events }` |
 | `GET /api/runs/:a/diff/:b` | — | `RunDiff` |
 | `GET /api/usage` | `?projectId=` | `UsageSummary` |
@@ -47,6 +47,10 @@ Types: `packages/core/src/schema.ts`, `usage.ts`, `diff.ts`. Typed client: `pack
   `observedEdges` come only from fresh recorded runs. Never present one as the other.
 - `run.stale` / `staleFiles`: the run's source no longer matches the latest snapshot; still evidence of the past.
 - `Answer.sentences[].supported === false` must be shown as unsupported; `abstained` answers start with `unknown`.
+- `run.imported === true`: the run came from a bundle. The bundle hash is an unkeyed checksum (detects edits, not a
+  forger who recomputes it), so present imported runs as third-party evidence, never as runs this Studio executed.
+- Observed events are produced inside the untrusted process being traced; they show what the instrumented code
+  reported, and a hostile repository could tamper with its own trace.
 
 ## Usage
 

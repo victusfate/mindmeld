@@ -224,7 +224,7 @@ export class Studio {
       { symbols: b.symbols, edges: b.edges, imports: [] }, b.indexerVersion);
     for (const run of b.runs) {
       const id = newId('run');   // imported runs get local ids; the bundle hash records their origin
-      this.store.saveRun({ ...run, id, projectId: project.id, snapshotId: snap.id }, (b.events[run.id] ?? []).map(e => ({ ...e, runId: id })));
+      this.store.saveRun({ ...run, id, imported: true, projectId: project.id, snapshotId: snap.id }, (b.events[run.id] ?? []).map(e => ({ ...e, runId: id })));
     }
     return project;
   }

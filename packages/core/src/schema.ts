@@ -75,6 +75,8 @@ export interface Run {
   runtimeVersion: string;
   /** Hashes of every file in the executed snapshot: editing any of them makes the run stale. */
   fileHashes: Record<string, string>;
+  /** Set on runs that came from an imported bundle: replayable evidence, but not executed by this Studio. */
+  imported?: boolean;
   /** Present when the run is read back: whether its source still matches the latest snapshot. */
   stale?: boolean;
   staleFiles?: string[];

@@ -51,12 +51,15 @@ export function retrieve(question: string, symbols: CodeSymbol[], contents: Map<
   return { symbols: scored.map(x => x.s), events: events.filter(e => chosen.has(e.symbol)).slice(0, MAX_EVENTS) };
 }
 
+/** Repository text must not be able to close or reopen the evidence block it is quoted in. */
+export const neutralize = (text: string): string => text.replace(/<\s*\/?\s*evidence\b[^>]*>/gi, '[evidence-tag]');
+
 export function evidenceBlock(r: Retrieval, contents: Map<string, string>): string {
   const parts = r.symbols.map(s => {
     const lines = (contents.get(s.span.file) ?? '').split('\n').slice(s.span.startLine - 1, Math.min(s.span.endLine, s.span.startLine - 1 + MAX_LINES));
-    return `[S:${s.id}] ${s.kind} ${s.name} at ${s.span.file}:${s.span.startLine}-${s.span.endLine}\n${redactText(lines.join('\n'))}`;
+    return `[S:${s.id}] ${s.kind} ${s.name} at ${s.span.file}:${s.span.startLine}-${s.span.endLine}\n${neutralize(redactText(lines.join('\n')))}`;
   });
-  const events = r.events.map(e => `[E:${e.runId}#${e.seq}] observed call ${e.symbol} depth=${e.depth} args=${e.args} ${e.threw ? 'threw' : 'returned'}=${e.result}`);
+  const events = r.events.map(e => `[E:${e.runId}#${e.seq}] observed call ${e.symbol} depth=${e.depth} args=${neutralize(e.args)} ${e.threw ? 'threw' : 'returned'}=${neutralize(e.result)}`);
   return `<evidence>\n${parts.join('\n\n')}\n\nRecorded events (observed in sandboxed runs):\n${events.join('\n') || '(none)'}\n</evidence>`;
 }
 

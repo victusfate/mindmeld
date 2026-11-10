@@ -69,6 +69,21 @@ function checkSymbols(b: Record<string, unknown>, hashes: Record<string, string>
   return ids;
 }
 
+const MAX_IMPORTED_EVENTS = 10_000;
+const RUN_STATUSES = new Set(['ok', 'error', 'timeout']);
+
+function checkRun(run: Run, snapshotHash: unknown, ids: Set<string>): void {
+  const hashes = run.fileHashes as unknown;
+  const validHashes = Boolean(hashes) && typeof hashes === 'object' && Object.values(hashes as object).every(h => typeof h === 'string');
+  if (typeof run.id !== 'string' || run.snapshotHash !== snapshotHash || !ids.has(run.entrySymbol) || !RUN_STATUSES.has(run.status) || !validHashes) {
+    throw new Error(`bundle: run ${String(run.id)} does not belong to this snapshot or is malformed`);
+  }
+}
+
+/**
+ * Structural validation only: `bundleHash` is an unkeyed checksum, so it detects edits and corruption, not a
+ * forger who recomputes it. Imported runs are therefore stored as `imported` evidence, never as local runs.
+ */
 export function validateBundle(value: unknown): EvidenceBundle {
   const b = obj(value, 'bundle');
   if (b.kind !== 'mindmeld-bundle' || b.version !== SCHEMA_VERSION) throw new Error('bundle: unsupported kind or version');
@@ -77,9 +92,10 @@ export function validateBundle(value: unknown): EvidenceBundle {
   const hashes = checkFiles(b);
   const ids = checkSymbols(b, hashes, b.sources as Record<string, string>);
   const events = obj(b.events, 'events');
+  const cleaned: Record<string, TraceEvent[]> = {};
   for (const run of list(b.runs, 'runs') as Run[]) {
-    if (run.snapshotHash !== b.snapshotHash || !ids.has(run.entrySymbol)) throw new Error(`bundle: run ${String(run.id)} does not belong to this snapshot`);
-    parseTrace({ events: events[run.id] ?? [] }, run.id, ids, 100_000);
+    checkRun(run, b.snapshotHash, ids);
+    cleaned[run.id] = parseTrace({ events: events[run.id] ?? [] }, run.id, ids, MAX_IMPORTED_EVENTS).events;
   }
-  return b as unknown as EvidenceBundle;
+  return { ...(b as unknown as EvidenceBundle), events: cleaned };
 }
