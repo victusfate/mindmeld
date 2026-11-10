@@ -87,3 +87,8 @@ security/rules-accepted.json
 tools/hoist-skill/notices.test.ts
 tools/hoist-skill/rename.test.ts
 tools/hoist-skill/references.test.ts
+
+# Mind Meld Studio product code (this repo's product, never synced to scaffold consumers)
+packages/**
+fixtures/**
+infra/**

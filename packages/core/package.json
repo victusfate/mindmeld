@@ -1,0 +1,10 @@
+{
+  "name": "@mindmeld/core",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Mind Meld Studio evidence core: safe import, TypeScript indexing, instrumentation, evidence store, citations.",
+  "exports": { ".": "./src/index.ts" },
+  "scripts": { "test": "node --test --test-reporter=spec \"test/*.test.ts\"" },
+  "dependencies": { "typescript": "6.0.3" }
+}
