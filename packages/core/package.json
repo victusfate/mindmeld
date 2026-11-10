@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "description": "Mind Meld Studio evidence core: safe import, TypeScript indexing, instrumentation, evidence store, citations.",
-  "exports": { ".": "./src/index.ts" },
+  "exports": { ".": "./src/index.ts", "./usage": "./src/usage.ts" },
   "scripts": { "test": "node --test --test-reporter=spec \"test/*.test.ts\"" },
   "dependencies": { "typescript": "6.0.3" }
 }
