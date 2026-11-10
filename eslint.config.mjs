@@ -22,7 +22,7 @@ export default tseslint.config(
   // .tooling/** is untracked local tooling (the security scanners' venv and ESLint stack); .claude/worktrees/**
   // holds subagent worktrees, which are other checkouts of this repo. fixtures/** are studied (untrusted) sample
   // repositories for Mind Meld Studio tests, deliberately containing a secret and a prompt-injection string.
-  { ignores: ['lib/linters/**', 'fixtures/**', '**/*.scaffold-new', 'node_modules/**', '.tooling/**', '.claude/worktrees/**'] },
+  { ignores: ['lib/linters/**', 'fixtures/**', '**/*.scaffold-new', 'node_modules/**', '.tooling/**', '.claude/worktrees/**', 'packages/*/dist/**'] },
   js.configs.recommended,
   ...tseslint.configs.recommendedTypeChecked,
   {
@@ -61,6 +61,11 @@ export default tseslint.config(
       '@typescript-eslint/no-unsafe-return': 'off',
       '@typescript-eslint/no-explicit-any': 'off',
     },
+  },
+  {
+    // Mind Meld Studio browser UI: runs in the page, not in Node.
+    files: ['packages/web/src/**/*.{ts,tsx}'],
+    languageOptions: { globals: { ...globals.browser } },
   },
   {
     // Config and plain-JS files aren't part of the TS program.
