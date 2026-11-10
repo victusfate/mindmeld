@@ -4,11 +4,11 @@
 import { extractCitations, resolveCitation, type CitationContext } from './citations.ts';
 import { redactText } from './redact.ts';
 import type { Answer, AnswerSentence, CodeSymbol, ResolvedCitation, TraceEvent } from './schema.ts';
-import { UNKNOWN_USAGE, type ModelUsage } from './usage.ts';
+import { UNKNOWN_USAGE, type ModelUsage, type ProviderLimit } from './usage.ts';
 
 export interface ChatMessage { role: 'system' | 'user' | 'assistant'; content: string }
 /** `usage` holds what the provider reported; anything it did not report is null (unknown). */
-export interface ChatReply { text: string; usage: ModelUsage }
+export interface ChatReply { text: string; usage: ModelUsage; limits?: ProviderLimit[] | null }
 export interface ModelStatus { available: boolean; reason: string; model: string | null }
 /** Implemented by @mindmeld/connectors: local agent CLIs (claude, codex, agy, pi); no API keys. */
 export interface ModelConnector {
@@ -100,5 +100,5 @@ export async function askQuestion(question: string, model: ModelConnector, ctx: 
     { role: 'system', content: SYSTEM_PROMPT },
     { role: 'user', content: `${evidenceBlock(retrieval, ctx.contents)}\n\nQuestion: ${question}` },
   ], { signal: AbortSignal.timeout(MODEL_TIMEOUT_MS) });
-  return { ...judgeAnswer(question, reply.text, ctx, reply.usage.model ?? status.model), usage: reply.usage };
+  return { ...judgeAnswer(question, reply.text, ctx, reply.usage.model ?? status.model), usage: reply.usage, limits: reply.limits ?? null };
 }

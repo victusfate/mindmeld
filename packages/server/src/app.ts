@@ -7,6 +7,21 @@ import { ModelUnavailableError, NotFoundError, SandboxUnavailableError, TraceRej
 import { checkRequest, COOKIE, HTTP, sameToken, securityHeaders, type Policy } from './security.ts';
 
 export const API_VERSION = 1;
+/**
+ * Frozen API v1 contract (docs/mind-meld-studio/api.md). Changes must be additive (new routes or new optional
+ * response fields); removing or renaming anything here needs API_VERSION 2. test/contract.test.ts enforces it.
+ */
+export const API_ROUTES = [
+  'GET /api/health', 'GET /auth', 'GET /api/usage/export',
+  'GET /api/status', 'GET /api/projects', 'POST /api/projects', 'GET /api/projects/:id', 'POST /api/projects/:id/refresh',
+  'GET /api/projects/:id/graph', 'GET /api/projects/:id/source', 'GET /api/projects/:id/entries', 'POST /api/projects/:id/entries',
+  'GET /api/projects/:id/runs', 'POST /api/projects/:id/runs', 'POST /api/projects/:id/ask', 'GET /api/projects/:id/citation',
+  'GET /api/projects/:id/bundle', 'POST /api/bundles', 'GET /api/usage', 'GET /api/runs/:id', 'GET /api/runs/:a/diff/:b',
+] as const;
+/** Routes served by the JSON dispatch table (the first three above are handled before dispatch). */
+export function dispatchedRoutes(studio: Studio): string[] {
+  return routes(studio).map(r => `${r.method} ${r.path}`);
+}
 const MAX_BODY = 2_000_000;
 const MAX_BUNDLE_BODY = 60_000_000;
 const TOKEN_BYTES = 24;
@@ -26,7 +41,7 @@ export interface RunningServer { server: Server; url: string; token: string; clo
 
 type Params = Record<string, string>;
 type Handler = (ctx: { req: IncomingMessage; params: Params; query: URLSearchParams; body: () => Promise<unknown> }) => unknown;
-interface Route { method: string; pattern: RegExp; keys: string[]; handler: Handler; bodyLimit: number }
+interface Route { method: string; path: string; pattern: RegExp; keys: string[]; handler: Handler; bodyLimit: number }
 
 class HttpError extends Error {
   readonly status: number;
@@ -36,7 +51,7 @@ class HttpError extends Error {
 function route(method: string, path: string, handler: Handler, bodyLimit = MAX_BODY): Route {
   const keys: string[] = [];
   const pattern = new RegExp(`^${path.replace(/:(\w+)/g, (_, k: string) => { keys.push(k); return '([^/]+)'; })}$`);
-  return { method, pattern, keys, handler, bodyLimit };
+  return { method, path, pattern, keys, handler, bodyLimit };
 }
 
 function readBody(req: IncomingMessage, limit: number): Promise<unknown> {
