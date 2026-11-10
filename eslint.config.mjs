@@ -22,7 +22,7 @@ export default tseslint.config(
   // .tooling/** is untracked local tooling (the security scanners' venv and ESLint stack); .claude/worktrees/**
   // holds subagent worktrees, which are other checkouts of this repo. fixtures/** are studied (untrusted) sample
   // repositories for Mind Meld Studio tests, deliberately containing a secret and a prompt-injection string.
-  { ignores: ['lib/linters/**', 'fixtures/**', '**/*.scaffold-new', 'node_modules/**', '.tooling/**', '.claude/worktrees/**'] },
+  { ignores: ['lib/linters/**', 'fixtures/**', '**/*.scaffold-new', 'node_modules/**', '.tooling/**', '.claude/worktrees/**', 'packages/*/dist/**'] },
   js.configs.recommended,
   ...tseslint.configs.recommendedTypeChecked,
   {
