@@ -45,7 +45,41 @@ node packages/server/src/cli.ts --usage --json     # JSONL, one record per line 
 
 Also `GET /api/usage` and `GET /api/usage/export` (JSONL), and in each interface's usage view.
 
-## Desktop, VS Code, container
+## Browser UI
 
-See `packages/desktop/README.md`, `packages/vscode/README.md` and `infra/compose/compose.yml`
-(the container cannot use your host's CLI login, so Q&A is off there; run natively for Q&A).
+```sh
+npm run studio:build                                   # builds packages/web/dist
+npm run studio:start -- --project fixtures/combat-game  # open the printed /auth?token=… URL
+```
+
+## Desktop (Electron)
+
+```sh
+npm run start -w @mindmeld/desktop        # builds dist/main.mjs and launches; runs the backend in-process
+npm run package -w @mindmeld/desktop      # installers into packages/desktop/release (build the web UI first)
+```
+
+The app reads your login-shell `PATH` so it finds `claude`/`codex`/`agy`/`pi` even when launched from a dock.
+Help → Usage… shows totals, 5h/7d windows and plan limits with a Copy button; File → Export Usage writes JSONL.
+If Electron's binary is missing after `npm install` (npm's install-script policy), run `node node_modules/electron/install.js`.
+
+## VS Code extension
+
+```sh
+(cd packages/vscode && npm run package)                       # → packages/vscode/mindmeld-studio-0.1.0.vsix
+code --install-extension packages/vscode/mindmeld-studio-0.1.0.vsix
+```
+
+Start the backend, then **Mind Meld: Connect** and paste the printed login URL; then Import Current Workspace,
+Allowlist Function at Cursor, Run Entry, Ask Question, Show Usage. The status bar shows 5h tokens and plan usage.
+
+## Container
+
+See `infra/compose/compose.yml`. A container cannot use your host's CLI login, so Q&A is off there; run natively
+for Q&A.
+
+## npm install-script policy
+
+npm reports that `esbuild`, `electron-winstaller` and `@vscode/vsce-sign` have install scripts not covered by
+`allowScripts`. Builds and tests pass without running them here; approving them (`npm install-scripts approve <pkg>`)
+is an owner decision.
