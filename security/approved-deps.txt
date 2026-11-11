@@ -3,3 +3,4 @@
 # MERGED ON origin/main (the gate reads this file from origin/main, so a branch cannot approve its own dependency).
 # Repo-owned: scaffold never ships this file, so sync never touches your approvals.
 # Format: <ecosystem>:<name> — <owner's words and date>
+npm:@azure/core-process — "Approve it" (owner, 2026-11-11; via @vscode/vsce → @azure/identity, Microsoft azure-sdk publisher, build-time only)
