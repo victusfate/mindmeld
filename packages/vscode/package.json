@@ -13,7 +13,7 @@
   "type": "module",
   "main": "./dist/extension.cjs",
   "engines": {
-    "vscode": "^1.140.0"
+    "vscode": "^1.145.0"
   },
   "categories": [
     "Other"
@@ -163,9 +163,9 @@
     "@mindmeld/connectors": "0.1.0",
     "@mindmeld/core": "0.1.0",
     "@mindmeld/server": "0.1.0",
-    "@types/vscode": "1.140.0",
-    "esbuild": "0.28.2",
-    "@vscode/vsce": "4.0.0"
+    "@types/vscode": "1.145.0",
+    "@vscode/vsce": "4.1.0",
+    "esbuild": "0.28.2"
   },
   "capabilities": {
     "untrustedWorkspaces": {

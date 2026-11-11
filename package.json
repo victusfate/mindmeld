@@ -31,5 +31,8 @@
   },
   "workspaces": [
     "packages/*"
-  ]
+  ],
+  "overrides": {
+    "@electron/universal": "3.0.6"
+  }
 }
