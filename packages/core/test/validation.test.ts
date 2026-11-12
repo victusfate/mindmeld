@@ -122,7 +122,7 @@ test('indexer resolves this-members and namespace imports; ignores unresolvable 
 });
 
 test('redaction covers credential shapes; bound truncates', () => {
-  const text = 'aws AKIAABCDEFGHIJKLMNOP gh ghp_abcdefghijklmnopqrstuvwx slack xoxb-1234567890-abc jwt eyJhbGciOiJIUzI1.eyJzdWIiOiIxMjM0.SflKxwRJSMeKKF2Q Bearer abc.def-ghi_jkl {"apiKey":"v1","password":"p"} -----BEGIN RSA PRIVATE KEY-----\nMII\n-----END RSA PRIVATE KEY-----';
+  const text = 'aws AKIAABCDEFGHIJKLMNOP gh ghp_abcdefghijklmnopqrstuvwx slack xoxb-1234567890-abc jwt eyJhbGciOiJIUzI1.eyJzdWIiOiIxMjM0.SflKxwRJSMeKKF2Q Bearer abc.def-ghi_jkl {"apiKey":"v1","password":"p"} -----BEGIN RSA PRIVATE KEY-----\nMII\n-----END RSA PRIVATE KEY-----'; // gitleaks:allow (fake credentials the redaction test must strip)
   const out = redactText(text);
   for (const leak of ['AKIAABCDEF', 'ghp_abc', 'xoxb-', 'eyJhbGci', 'abc.def-ghi', '"v1"', '"p"', 'MII']) assert.ok(!out.includes(leak), leak);
   assert.equal(bound('abcdef', 3), 'abc…[truncated 3 chars]');

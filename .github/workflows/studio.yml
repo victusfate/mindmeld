@@ -49,7 +49,6 @@ jobs:
         run: docker pull node:26-alpine@sha256:8996bb5821d62a8fd9bb27c1cb07462f3fdce6e47d640c6a881ead0b064ce216 && docker tag node:26-alpine@sha256:8996bb5821d62a8fd9bb27c1cb07462f3fdce6e47d640c6a881ead0b064ce216 node:26-alpine
       - name: Install Playwright Chromium for browser/Electron end-to-end tests
         run: |
-          npm install --no-save --ignore-scripts playwright@1.63.0
           npx playwright install --with-deps chromium
           sudo apt-get install -y xvfb
       - name: Build
