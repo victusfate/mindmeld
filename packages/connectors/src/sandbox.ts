@@ -1,9 +1,10 @@
 // OCI sandbox connectors (Docker, Podman). Each run gets a fresh, network-less, read-only container with
 // dropped capabilities, bounded memory/pids/cpu and a hard kill timeout. The source is mounted read-only.
 // Images are never pulled during a run; a missing image makes execution unavailable, not unsafe.
-import { spawn, spawnSync } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { realpathSync } from 'node:fs';
+import { execAsync, type ExecResult } from './exec.ts';
 import type { SandboxConnector, SandboxResult, SandboxSpec, SandboxStatus } from '@mindmeld/core';
 
 export const DEFAULT_IMAGE = 'node:26-alpine';
@@ -12,6 +13,7 @@ const MAX_STDERR = 20_000;
 const MAX_REASON = 200;
 const MS_PER_SECOND = 1000;
 const HOST_BACKSTOP_MS = 5000;
+const CLI_TIMEOUT_MS = 15_000;
 /** Exit status of a process killed by SIGKILL (128 + 9), what `timeout -s KILL` reports. */
 const KILLED_EXIT = 137;
 const PROXY_VARS = ['HTTP_PROXY', 'HTTPS_PROXY', 'ALL_PROXY', 'NO_PROXY', 'http_proxy', 'https_proxy', 'all_proxy', 'no_proxy'];
@@ -38,19 +40,14 @@ export class OciSandbox implements SandboxConnector {
     return env;
   }
 
-  private cli(args: string[], timeout = 15_000): { ok: boolean; out: string; err: string } {
-    const r = spawnSync(this.binary, args, { env: this.env(), encoding: 'utf8', timeout });
-    return { ok: !r.error && r.status === 0, out: r.stdout ?? '', err: r.error?.message ?? r.stderr ?? '' };
+  private cli(args: string[], timeoutMs = CLI_TIMEOUT_MS): Promise<ExecResult> {
+    return execAsync(this.binary, args, { env: this.env(), timeoutMs });
   }
 
-  status(): Promise<SandboxStatus> {
-    return Promise.resolve(this.probe());
-  }
-
-  private probe(): SandboxStatus {
-    const version = this.cli(['version', '--format', '{{.Server.Version}}']);
+  async status(): Promise<SandboxStatus> {
+    const version = await this.cli(['version', '--format', '{{.Server.Version}}']);
     if (!version.ok) return { available: false, reason: `${this.binary} daemon not reachable: ${version.err.trim().slice(0, MAX_REASON)}`, runtime: null };
-    const image = this.cli(['image', 'inspect', '--format', '{{.Id}}', this.image]);
+    const image = await this.cli(['image', 'inspect', '--format', '{{.Id}}', this.image]);
     if (!image.ok) return { available: false, reason: `sandbox image ${this.image} is not present locally (prepare it once with \`${this.binary} pull ${this.image}\`)`, runtime: null };
     return { available: true, reason: `${this.binary} ${version.out.trim()} · image ${image.out.trim().slice(0, 19)}`, runtime: null };
   }
@@ -81,9 +78,10 @@ export class OciSandbox implements SandboxConnector {
       child.on('error', error => { clearTimeout(timer); reject(new Error(`sandbox failed to start (no unsafe fallback): ${error.message}`)); });
       child.on('close', code => {
         clearTimeout(timer);
-        this.cli(['rm', '--force', name]);   // only this invocation's own randomly named container
         // `timeout -s KILL` exits 137 when it kills the entry.
-        resolve({ exitCode: code, stdout, stderr: stderr.slice(0, MAX_STDERR), timedOut: timedOut || code === KILLED_EXIT });
+        const result = { exitCode: code, stdout, stderr: stderr.slice(0, MAX_STDERR), timedOut: timedOut || code === KILLED_EXIT };
+        // Remove only this invocation's own randomly named container, then report.
+        void this.cli(['rm', '--force', name]).then(() => resolve(result));
       });
     });
   }

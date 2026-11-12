@@ -5,6 +5,7 @@
 //  - runs in a fresh empty temp directory with Studio's own secrets removed from the environment,
 //  - is bounded by a timeout and an output cap, and its answer is still citation-checked by core.
 import { spawn, spawnSync } from 'node:child_process';
+import { execAsync } from './exec.ts';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -118,17 +119,14 @@ export class CliModel implements ModelConnector {
     return this.model ? ['--model', this.model, ...args] : args;
   }
 
-  status(): Promise<ModelStatus> {
-    const probe = spawnSync(this.command, ['--version'], { encoding: 'utf8', timeout: PROBE_TIMEOUT_MS, env: cleanEnv() });
-    if (probe.error || probe.status !== 0) {
-      const why = probe.error?.message ?? probe.stderr;
-      return Promise.resolve({ available: false, reason: `${this.command} CLI not usable: ${why.trim().slice(0, MAX_REASON)}`, model: this.model ?? null });
-    }
+  async status(): Promise<ModelStatus> {
+    const probe = await execAsync(this.command, ['--version'], { timeoutMs: PROBE_TIMEOUT_MS, env: cleanEnv() });
+    if (!probe.ok) return { available: false, reason: `${this.command} CLI not usable: ${probe.err.trim().slice(0, MAX_REASON)}`, model: this.model ?? null };
     if (!this.verified) {
       // Fail closed: repository text reaches the prompt, so an agent with shell/file tools must not receive it.
-      return Promise.resolve({ available: false, reason: `${this.command}: no verified way to disable its tools; set MINDMELD_MODEL_ARGS to an invocation that runs with tools off (unverified)`, model: this.model ?? null });
+      return { available: false, reason: `${this.command}: no verified way to disable its tools; set MINDMELD_MODEL_ARGS to an invocation that runs with tools off (unverified)`, model: this.model ?? null };
     }
-    return Promise.resolve({ available: true, reason: `${this.command} ${probe.stdout.trim().slice(0, MAX_REASON)}`, model: this.model ?? this.name });
+    return { available: true, reason: `${this.command} ${probe.out.trim().slice(0, MAX_REASON)}`, model: this.model ?? this.name };
   }
 
   chat(messages: ChatMessage[], options: { signal?: AbortSignal } = {}): Promise<ChatReply> {
@@ -151,7 +149,7 @@ export class CliModel implements ModelConnector {
   }
 }
 
-/** First provider whose CLI answers `--version`, in the order given. */
+/** First provider whose CLI answers `--version`, in the order given. Startup only (before the server listens), so it may block. */
 export function detectProvider(order: CliProvider[] = CLI_PROVIDERS): CliProvider | null {
   return order.find(p => { const r = spawnSync(p, ['--version'], { timeout: PROBE_TIMEOUT_MS }); return !r.error && r.status === 0; }) ?? null;
 }

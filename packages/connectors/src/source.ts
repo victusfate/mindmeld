@@ -1,6 +1,6 @@
 // Repository source connectors. They only place files on disk for read-only import: no hooks, no
 // submodules, no install scripts, no credentials, and git transports limited to https.
-import { spawnSync } from 'node:child_process';
+import { execAsync } from './exec.ts';
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, realpathSync, rmSync, statSync } from 'node:fs';
 import { basename, join, sep } from 'node:path';
@@ -41,20 +41,20 @@ export class GitSource implements SourceConnector {
   private readonly o: GitOptions;
   constructor(options: GitOptions) { this.o = options; }
 
-  materialize(ref: string): Promise<{ root: string; name: string }> {
+  async materialize(ref: string): Promise<{ root: string; name: string }> {
     const url = checkGitUrl(ref, this.o.allowFileProtocol);
     const dir = join(this.o.cacheDir, createHash('sha256').update(url.href).digest('hex').slice(0, CACHE_KEY_CHARS));
     mkdirSync(this.o.cacheDir, { recursive: true });
     if (existsSync(dir)) rmSync(dir, { recursive: true, force: true });
     const protocols = this.o.allowFileProtocol ? ['-c', 'protocol.file.allow=always'] : [];
-    const r = spawnSync('git', ['-c', 'core.hooksPath=/dev/null', '-c', 'core.symlinks=false', '-c', 'protocol.allow=never',
+    const r = await execAsync('git', ['-c', 'core.hooksPath=/dev/null', '-c', 'core.symlinks=false', '-c', 'protocol.allow=never',
       '-c', 'protocol.https.allow=always', ...protocols, '-c', 'credential.helper=', 'clone', '--depth=1', '--no-recurse-submodules',
       '--single-branch', '--no-tags', '--', url.href, dir], {
-      encoding: 'utf8', timeout: this.o.timeoutMs ?? CLONE_TIMEOUT_MS,
+      timeoutMs: this.o.timeoutMs ?? CLONE_TIMEOUT_MS,
       env: { PATH: process.env.PATH, HOME: this.o.cacheDir, GIT_TERMINAL_PROMPT: '0', GIT_CONFIG_NOSYSTEM: '1', GIT_LFS_SKIP_SMUDGE: '1',
         HTTPS_PROXY: process.env.HTTPS_PROXY, https_proxy: process.env.https_proxy, SSL_CERT_FILE: process.env.SSL_CERT_FILE, GIT_SSL_CAINFO: process.env.GIT_SSL_CAINFO },
     });
-    if (r.error || r.status !== 0) return Promise.reject(new Error(`git clone failed: ${(r.error?.message ?? r.stderr).trim().slice(0, MAX_ERROR)}`));
-    return Promise.resolve({ root: realpathSync(dir), name: basename(url.pathname).replace(/\.git$/, '') || 'repository' });
+    if (!r.ok) throw new Error(`git clone failed: ${r.err.trim().slice(0, MAX_ERROR)}`);
+    return { root: realpathSync(dir), name: basename(url.pathname).replace(/\.git$/, '') || 'repository' };
   }
 }

@@ -230,3 +230,24 @@ test('a CLI that exits 0 without writing its answer file is an error, not a cras
   writeFileSync(bin, "#!/usr/bin/env node\nprocess.stdin.resume(); process.stdin.on('end', () => process.exit(0));\n", { mode: 0o755 });
   await assert.rejects(new CliModel({ provider: 'codex', command: bin }).chat([{ role: 'user', content: 'q' }]), /no readable answer/);
 });
+
+test('docker, agent-CLI and git calls keep the server responsive while they run', async () => {
+  // Each fake command takes SLOW_MS; a blocking call would freeze the event loop for that whole time.
+  const SLOW_MS = 600, TICK_MS = 20, MIN_TICKS = 10;
+  const dir = mkdtempSync(join(tmpdir(), 'mm-slow-'));
+  for (const name of ['docker', 'git', 'slow-cli']) writeFileSync(join(dir, name), `#!/bin/sh\nsleep ${SLOW_MS / 1000}\nexit 1\n`, { mode: 0o755 });
+  const responsive = async (work: () => Promise<unknown>): Promise<number> => {
+    let ticks = 0;
+    const timer = setInterval(() => { ticks++; }, TICK_MS);
+    try { await work().catch(() => undefined); } finally { clearInterval(timer); }
+    return ticks;
+  };
+  const savedPath = process.env.PATH;
+  process.env.PATH = `${dir}:${savedPath ?? ''}`;
+  try {
+    assert.ok(await responsive(() => new OciSandbox().status()) >= MIN_TICKS, 'sandbox status');
+    assert.ok(await responsive(() => new CliModel({ provider: 'claude', command: join(dir, 'slow-cli') }).status()) >= MIN_TICKS, 'model status');
+    const cacheDir = mkdtempSync(join(tmpdir(), 'mm-slow-cache-'));
+    assert.ok(await responsive(() => new GitSource({ cacheDir }).materialize('https://example.invalid/r.git')) >= MIN_TICKS, 'git clone');
+  } finally { process.env.PATH = savedPath; }
+});
