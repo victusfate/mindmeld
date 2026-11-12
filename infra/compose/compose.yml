@@ -1,0 +1,32 @@
+# Mind Meld Studio in a container. From the repository root:
+#   docker compose -f infra/compose/compose.yml up -d --build
+#   docker compose -f infra/compose/compose.yml logs studio   # prints the one-time login URL
+# Q&A uses a local agent CLI (claude, codex, agy, pi) logged in on YOUR machine; Studio holds no model keys.
+# A container cannot use the host's CLI login, so Q&A is off here: run Studio natively (`npm run studio:start`)
+# for Q&A. Maps, sandboxed runs (with compose.sandbox.yml), replay and citations all work without a model.
+# Execution is OFF in this file.
+# To enable sandboxed execution add infra/compose/compose.sandbox.yml — read its warning first.
+name: mindmeld
+services:
+  studio:
+    build:
+      context: ../..
+      dockerfile: infra/docker/Dockerfile
+    image: mindmeld-studio:local
+    init: true
+    ports:
+      - "127.0.0.1:8787:8787"          # loopback only; the API also checks Host/Origin and a token
+    environment:
+      MINDMELD_TOKEN: ${MINDMELD_TOKEN:-}
+      MINDMELD_MODEL_PROVIDER: none
+      MINDMELD_ALLOWED_ROOTS: /workspace
+      MINDMELD_ALLOWED_HOSTS: localhost
+    volumes:
+      - studio-data:/data
+      - ${MINDMELD_WORKSPACE:-../../fixtures}:/workspace:ro
+    read_only: true
+    tmpfs: ["/tmp"]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+volumes:
+  studio-data:

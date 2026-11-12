@@ -20,8 +20,11 @@ const MAX_PARAMS = 4;
 
 export default tseslint.config(
   // .tooling/** is untracked local tooling (the security scanners' venv and ESLint stack); .claude/worktrees/**
-  // holds subagent worktrees, which are other checkouts of this repo.
-  { ignores: ['lib/linters/**', '**/*.scaffold-new', 'node_modules/**', '.tooling/**', '.claude/worktrees/**'] },
+  // holds subagent worktrees, which are other checkouts of this repo. fixtures/** are studied (untrusted) sample
+  // repositories for Mind Meld Studio tests, deliberately containing a secret and a prompt-injection string.
+  { ignores: ['lib/linters/**', 'fixtures/**', '**/*.scaffold-new', 'node_modules/**', '.tooling/**', '.claude/worktrees/**',
+    // Build outputs: packages/*/dist (bundled Electron main, web UI) and electron-builder's packages/desktop/release.
+    'packages/*/dist/**', 'packages/desktop/release/**'] },
   js.configs.recommended,
   ...tseslint.configs.recommendedTypeChecked,
   {
@@ -46,6 +49,25 @@ export default tseslint.config(
       // See lib/linters/ts/eslint.config.mjs — autofix strips assertions tsc needs.
       '@typescript-eslint/no-unnecessary-type-assertion': 'off',
     },
+  },
+  {
+    // Mind Meld Studio package tests: node:test's test() returns a promise the runner awaits, and HTTP
+    // assertions read untyped JSON responses on purpose.
+    files: ['packages/*/test/**/*.ts'],
+    rules: {
+      '@typescript-eslint/no-floating-promises': 'off',
+      '@typescript-eslint/no-unsafe-member-access': 'off',
+      '@typescript-eslint/no-unsafe-assignment': 'off',
+      '@typescript-eslint/no-unsafe-argument': 'off',
+      '@typescript-eslint/no-unsafe-call': 'off',
+      '@typescript-eslint/no-unsafe-return': 'off',
+      '@typescript-eslint/no-explicit-any': 'off',
+    },
+  },
+  {
+    // Mind Meld Studio browser UI: runs in the page, not in Node.
+    files: ['packages/web/src/**/*.{ts,tsx}'],
+    languageOptions: { globals: { ...globals.browser } },
   },
   {
     // Config and plain-JS files aren't part of the TS program.

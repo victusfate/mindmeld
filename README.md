@@ -1,432 +1,66 @@
-# scaffold
+# Mind Meld Studio
 
-[![Use this template](https://img.shields.io/badge/Use%20this%20template-2ea44f?style=for-the-badge&logo=github)](https://github.com/victusfate/scaffold/generate)
+Learn an unfamiliar codebase from evidence, not guesses. Point Mind Meld Studio at a repository and you get:
 
-An opinionated, cross-harness project scaffold for building software with AI coding agents. Drop it into any new project and your agent follows the same design → PRD → TDD workflow, with quality gates that score the code, whether you use Claude Code, Codex, Cursor, Antigravity, or pi.dev.
+- **A source-linked map** of modules, symbols and the calls between them, built from a static index. Nothing is executed or installed to draw it.
+- **Real runs you can replay.** Pick an allowlisted entry point, give it inputs, and Studio runs it in a locked-down container and records what was actually called. Step through the trace or compare two runs side by side.
+- **Answers with citations.** Ask a question and a local agent CLI you're already logged into (`claude`, `codex`, `agy` or `pi`) answers from the indexed source and recorded runs. Each sentence cites the code or trace it rests on, and anything it can't support is marked *unknown*.
 
-## Usage
+It runs as a browser app, an Electron desktop app or a VS Code extension, all talking to one local backend.
 
-**Browser / mobile:** hit "Use this template" above → create new repository → open in your preferred coding agent.
+> **Status:** prototype. The localhost API (v1) is frozen; everything else may change.
 
-**CLI:**
-```bash
-gh repo create my-new-project --template victusfate/scaffold --private
-gh repo clone victusfate/my-new-project
+## What it promises
+
+- Static *possible* calls, *observed* runtime calls and model *interpretations* are kept apart, in the data and on screen.
+- No invented events, values or results. If the evidence isn't there, the answer says **unknown**. A call that wasn't observed isn't proof it can't happen.
+- The repository you're reading is treated as untrusted. Runs are allowlisted, have no network, mount the source read-only, are resource-bounded, and refuse to run at all without a container sandbox.
+- Every recording is tied to the source hashes, inputs and sandbox policy it came from, and goes visibly stale when the code changes.
+- No API keys. The model is optional: maps, traces, replay and citations all work offline.
+- Secrets are redacted before anything is stored or sent to a model.
+
+## Quick start
+
+Needs Node 26 (see `.node-version`; Node 23.6 or newer works).
+
+```sh
+npm install
+npm run studio:build
+npm run studio:start -- --project fixtures/combat-game
 ```
 
-## Philosophy
+Open the printed `http://127.0.0.1:8787/auth?token=…` URL. To run code you also need Docker or Podman and a local copy of the sandbox image (`docker pull node:26-alpine`). Without it, everything except Run still works.
 
-- **Design through evidence** — agents investigate assumptions, compare approaches when needed, and revise code and specifications as they learn. Owners supply intent and consequential tradeoffs. Builds, checks, and delivery automate repeatable work; merge throughput alone does not measure product success. See the rubric's [Design Validity criteria](lib/code-quality-rubric.md#6-design-validity).
-- **Single source of truth** — `AGENTS.md` holds all agent instructions. `CLAUDE.md` imports it; `GEMINI.md` references it; `.cursor/rules/agents.mdc` points to it. No duplication.
-- **Careful before fast** — features start with a structured design Q&A (`co-plan`) that locks in vocabulary and decisions before any code is written.
-- **Automatic flow** — once the Q&A is done, the rest runs on its own (PRD → TDD → review gate), with no handoffs for you to manage.
-- **Minimum viable diff** — agents are told to make the smallest change that does the job and skip opportunistic refactors.
-- **Quality is scored, not vibed** — every changed file is graded on a four-dimension rubric with cited, weighted deductions, and the chain won't open a PR until each one scores 10/10.
+The full walkthrough, with configuration, the desktop and VS Code apps, the container image and usage export, is in [`docs/mind-meld-studio/quickstart.md`](docs/mind-meld-studio/quickstart.md).
 
-## Workflow
+## Repository layout
 
-Start a feature by telling your agent what you want to build. The `feature-chain` skill picks it up and runs four phases:
+| Path | What's there |
+| --- | --- |
+| `packages/core` | Evidence engine: safe repo import, TypeScript indexer, run recording, SQLite store, staleness, cited Q&A, bundles, usage |
+| `packages/connectors` | Docker/Podman sandbox, local agent-CLI model connector, local and git sources |
+| `packages/server` | Localhost API v1 with token/cookie auth ([`api.md`](docs/mind-meld-studio/api.md)) |
+| `packages/client` | Typed API client |
+| `packages/web` | Browser UI (React) |
+| `packages/desktop` | Electron app |
+| `packages/vscode` | VS Code extension |
+| `infra/` | Container image, compose files, sandbox image, smoke test |
+| `fixtures/combat-game` | Small sample repo for trying Studio out |
+| `docs/mind-meld-studio/` | Design, API and quickstart |
 
-```
-co-plan → to-prd → tdd → review
-     (Q&A)        (auto)   (auto)  (you)
-```
+## Development
 
-1. **co-plan** — Agent interviews you one question at a time, sharpens terminology, stress-tests against the codebase, and produces `./docs/<slug>/design.md` with a canonical vocabulary and Mermaid/ASCII diagrams as structure becomes clear.
-2. **to-prd** — Synthesizes the conversation and codebase into `./docs/<slug>/prd.md` automatically. No re-interviewing.
-3. **tdd** — Derives `plan.md` from the PRD, then executes RED → GREEN → REFACTOR one vertical slice at a time, scoring each slice against the quality rubric as it goes. Commits per slice.
-4. **Review** — Once the slices pass, `simplify` brings every changed file to 10/10 on all four rubric dimensions, and `qa` runs the app through the changed entry points and fixes what breaks. Then the chain shows you a summary of what was built, which tests pass, and any departures from the plan, and waits for your review before merging.
-
-Skills can also be invoked individually. See [`docs/skills.md`](docs/skills.md) for the full skill list and repo layout.
-
-## Quality gate
-
-Every feature is scored against a four-dimension rubric — **Quality**,
-**Readability**, **Encapsulation**, **Clarity** — defined once in
-[`lib/code-quality-rubric.md`](lib/code-quality-rubric.md) and shared by every
-skill that scores code. Each dimension starts at 10 and every deduction must cite
-a `filename:line` (`Score = 10 − Σ(violation weights)`), so a score is never a
-vibe.
-
-The rubric is used at three points in the chain:
-
-- **tdd** loads the rubric before writing code — code that would violate it isn't
-  written in the first place, and REFACTOR only confirms the scores.
-- **`/simplify`** scores the changed files once the slices pass
-  (auto-fix in the chain, review mode standalone). All files must reach 10/10
-  before a PR is opened, and `create-pr` re-runs it as a gate.
-- **`/audit`** is the standalone counterpart — score any scope of files, ranked
-  worst-first, with `--fix` to apply small fixes in place.
-
-A mechanical pre-flight runs in CI on every PR via
-[`.github/workflows/quality.yml`](.github/workflows/quality.yml) →
-`scripts/check-quality-mechanical.sh`: file length, magic literals, and
-commented-out code, each emitting `filename:line` citations and failing the build
-on any hit.
-
-**Generated files:** put `@generated` in the first 5 lines of any
-machine-produced/data file (geometry, fixtures, compiled tables) to exclude it
-from mechanical checks — the same convention ESLint/Prettier use. Do not use it
-on hand-maintained logic.
-
-**Overrides (model-driven criteria only).** A genuinely irreducible violation can
-be exempted two ways — both require a reason and appear in the report at zero
-score weight:
-
-- **PR body:** `quality-override: <file> — <criterion> — <reason>`
-- **Inline (colocated):** `// quality-override: <criterion> — <reason>` on the
-  line immediately above the offending line (or the first non-blank, non-shebang
-  line for a whole-file criterion). The rationale lives next to the code and
-  survives merge.
-
-Mechanical criteria can never be overridden by either form — the code must be
-fixed. A malformed pragma (unknown criterion, blank reason, or missing separator)
-is itself a `[Clarity/minor]` violation.
-
-## Understanding and safe modification
-
-Prioritize understanding and modification, saved data and compatibility, then
-useful architectural boundaries. Keep current facts in executable types,
-interfaces, examples, schemas and tests; keep intent and tradeoffs in small
-records linking to those sources.
-
-The queue's `contracts` field points to authoritative executable contracts through
-its CLI, SQLite storage and import/export. Configure JavaScript/TypeScript import
-rules with `.agent/boundaries.json` and run
-`node scripts/check-import-boundaries.ts` in CI (requires TypeScript). See
-[safe modification guidance](docs/agents-detail.md#safe-modification--executable-knowledge-and-preservation)
-and the [system quality rubric](lib/code-quality-rubric.md#5-system-quality).
-
-Use [`/mind-meld`](skills/mind-meld.md) to build a repository-owned learning IDE.
-The reference adapter runs a small combat flow and isolated damage step, records
-values and mutations, compares runs, and renders an offline graph/trace/source
-viewer. Each child repository supplies adapters for its own stack.
-Bundles carry source hashes; `verify` detects stale evidence against a checkout.
-The offline viewer identifies its snapshot rather than claiming live freshness.
-
-Time gate attempts and report their cost with `scripts/delivery-metrics.ts`.
-Failures count as false positives only after an explicit review with evidence;
-unreviewed outcomes remain unknown.
-
-## Harness support
-
-| Harness | How it reads instructions |
-|---|---|
-| Claude Code | `CLAUDE.md` → imports `AGENTS.md`; `/skill-name` invokes skills |
-| Cursor | `.cursor/rules/*.mdc` — description-driven activation |
-| Google Antigravity | `GEMINI.md` + `AGENTS.md`; `.agents/skills/` (lazy-loaded) + `.agent/workflows/` (slash commands) |
-| OpenAI Codex | `AGENTS.md` directly; `.agents/skills/` via `$skill-name` or `/skills` |
-| pi.dev | `AGENTS.md` directly; `.pi/skills/<name>/SKILL.md` (lazy-loaded) |
-
-## Codex quick start
-
-Open this repository in Codex and ask for a task, or invoke `$feature-chain`.
-Skills are discovered from `.agents/skills`; their linked bodies in `skills/`
-remain shared with the other harnesses. Use `$resume` for scaffold checkpoints;
-Codex’s `/resume` selects local chat history.
-
-For an existing project, use the scaffold sync flow below to install the complete
-harness, including runtime scripts and the quality rubric. For a selected set of
-skill bodies and wrappers:
-
-```bash
-node tools/hoist-skill/run --names feature-chain,tdd --harness codex --into ../my-project
+```sh
+npm run studio:typecheck
+npm run studio:test        # all workspace suites
+npm run studio:coverage    # with per-package coverage floors
+npm run lint
 ```
 
-Selective hoisting does not install a skill’s transitive runtime dependencies;
-use full sync for a complete development harness. See [Codex support](docs/codex.md)
-for setup, verified paths, optional integrations, and voice configuration.
+Some tests run only when their dependency is available: the real Docker sandbox, Playwright for the browser end-to-end test, and `RUN_MINDMELD_CLI_MODEL=1` for a real `claude` CLI call.
 
-## Feature artifacts
-
-Each feature gets its own folder under `./docs/`:
-
-```
-./docs/<feature-slug>/
-  design.md      # Q&A, decisions, canonical vocabulary, diagrams
-  prd.md         # problem, solution, user stories, implementation decisions
-  plan.md        # vertical slices
-  tdd-log.md     # per-slice TDD status
-```
-
-## Syncing updates to downstream repos
-
-**Bootstrap** (one-time per repo — installs the sync script, prints next steps):
-```bash
-curl -fsSL https://raw.githubusercontent.com/victusfate/scaffold/main/bin/bootstrap.sh | bash
-```
-
-Bootstrap does not run the sync automatically and does not change any tracked files.
-Run the first sync yourself when ready:
-```bash
-bash bin/sync-from-scaffold.sh
-```
-
-Flags:
-- `--run` — also run the sync immediately after install (old behavior).
-- `--with-workflow` — also install `.github/workflows/sync-scaffold.yml`.
-
-**Update** (run whenever you want to pull in scaffold changes, like a dependency bump):
-```bash
-bash bin/sync-from-scaffold.sh
-```
-
-Or ask the agent — `/sync-scaffold` detects which path is needed (bootstrap vs sync) and runs it automatically.
-
-The sync script uses git (no curl after bootstrap), compares blob SHAs, and three-way merges files that both you and scaffold have changed. Files with uncommitted local edits are skipped with a warning. The last-synced SHA is stored in `.github/scaffold-sync-sha` so future merges have a proper base.
-
-**Clobber-safe behaviors:**
-
-- **No silent first-sync overwrite.** When no base SHA exists and a target file already exists and differs, the incoming version is written to `<file>.scaffold-new` for deliberate review. The original is left untouched. Diff and merge when ready, then commit the resolution and re-run with `--mark-resolved <file>` to save the SHA.
-- **Committed conflict resolutions.** After resolving a three-way conflict, commit the file and re-run with `--mark-resolved <file>` for each resolved path (repeat the flag for multiple files). This accepts your resolution for the fetched upstream revision instead of merging against the old base again. Only managed, tracked files with a clean index and working copy and no conflict markers are accepted. Review against the fetched revision if upstream has advanced; `--dry-run` previews acceptance without saving the SHA.
-- **`.scaffold-keep`.** Add an optional `.scaffold-keep` file at your repo root (one path or glob per line; `#` comments and blank lines ignored). Any matching path is always skipped — even on first sync — and reported as "Kept (consumer-owned)". Use this to protect any file you own locally from being overwritten.
-- **`CLAUDE.md` is shipped as a starting point.** On first sync into a repo that has no `CLAUDE.md`, scaffold writes one. If you have already customized yours, add `CLAUDE.md` to `.scaffold-keep` — the sidecar or keep-list will protect it from then on.
-- **Project rules without editing `AGENTS.md`: `AGENTS.local.md`.** Put your repo's own agent guidance in a consumer-owned `AGENTS.local.md` (scaffold never ships it). When it exists, the sync writes `AGENTS.md` as scaffold's `AGENTS.md` followed by a marked block holding `AGENTS.local.md`, so every harness reads one file and the upstream part stays byte-identical to scaffold. Before the first compose, move any edits you made to `AGENTS.md` into `AGENTS.local.md`: the upstream part is rewritten from scaffold on every sync. A `.scaffold-keep` entry for `AGENTS.md` still wins (no composing). Edit `AGENTS.local.md`, never the block, then re-sync. `bash bin/sync-from-scaffold.sh --verify-local` (offline, CI-friendly) fails if the block was hand-edited or is stale. Keep the combined file inside your harnesses' rule-file size limits.
-- **`LICENSE` is never synced.** The sync only writes files listed in `.github/scaffold-files.txt`, and `LICENSE` is not one of them. A repo created from the template starts with scaffold's MIT `LICENSE` (a one-time copy from "Use this template") — replace it, delete it, or go closed-source/private as you like. Scaffold will never re-add or overwrite it.
-
-**Pinning to a release tag** (recommended for reproducible pulls):
-```bash
-# Pin SCAFFOLD_REF in your update script or set the remote to a tag
-git fetch scaffold refs/tags/v1.0:refs/tags/scaffold-v1.0
-```
-
-A GitHub Actions workflow can be installed at `.github/workflows/sync-scaffold.yml` — trigger it manually from the Actions tab for a PR-based update flow. Install it with `--with-workflow` during bootstrap, or copy it manually.
-
-### What ships, and how we keep the manifest honest
-
-Two lists classify every tracked file in this repo:
-
-- **`.github/scaffold-files.txt`** — the manifest of files that sync to consumers.
-- **`.github/scaffold-internal.txt`** — files deliberately held back (this repo's own CI, dev/test scripts, feature artifacts, maintainer tooling).
-
-CI (`scripts/check-resolvable.ts` → `phaseManifestCompleteness`) fails if a tracked file is in **neither** list, or if the manifest lists a file that no longer exists. This makes "ship it unless explicitly held back" the default, so adding a skill's runtime (e.g. `tools/<x>/`, `lib/<x>/`) without also shipping it can't silently slip through. The check is keyed on `scaffold-internal.txt`, which never syncs — so consumer repos (which lack it) skip it rather than flagging their own files.
-
-> **Future direction — git-native sync.** Today's flow is a hand-rolled *selective vendoring* tool: it re-implements merge (3-way against the stored SHA) and ignore (`.scaffold-keep`) over a curated subset that scatters into ~13 shared dirs. That keeps the *destination* repo simple (files live natively where each harness reads them, no install step) at the cost of a bespoke sync tool plus a manifest that must be kept complete (the guard above). A possible future swap: relocate scaffold's payload under a single owned prefix (e.g. `vendor/scaffold/`) consumed via **`git subtree`** (real `git pull`, history, conflict resolution, `git subtree push` upstream) plus an **install step** that places files into harness paths. That trades manifest-maintenance for an install/symlink layer in every consumer — worth it once we want real history and bidirectional contribution badly enough to pay that cost. Not adopting it now; keeping `sync-scaffold` as-is.
-
-## Using scaffold skills as a dependency
-
-The sync flow above is bulk — it pulls every file in the manifest. If you only want specific skills in a specific harness, use `hoist-skill` instead. scaffold owns the emit so consumers do not need to know the internal canonical+generated layout.
-
-**Emit specific skills into a repo:**
-```bash
-# From inside a scaffold clone, target another repo
-node tools/hoist-skill/run \
-  --names feature-chain,co-plan,tdd \
-  --harness claude \
-  --into ../my-project
-```
-
-After a successful emit, the tool automatically writes (or updates) `../my-project/.sync/hoisted` — a tab-separated registration manifest recording each `(name, harness, ref)` triple. Commit this file so the selection survives across sessions and devices.
-
-**Emit everything for all harnesses:**
-```bash
-node tools/hoist-skill/run --names all --harness all --into ../my-project
-```
-
-**List available capabilities:**
-```bash
-node tools/hoist-skill/run --list
-```
-
-**What gets written per harness:**
-
-| Harness | Files written |
-|---|---|
-| `claude` | `skills/<name>.md` + `.claude/skills/<name>/SKILL.md` |
-| `cursor` | `skills/<name>.md` + `.cursor/rules/<name>.mdc` |
-| `codex` | `skills/<name>.md` + `.agents/skills/<name>/SKILL.md` |
-| `antigravity` | `skills/<name>.md` + `.agents/skills/<name>/SKILL.md` + `.agent/workflows/<name>.md` |
-| `pi` | `skills/<name>.md` + `.pi/skills/<name>/SKILL.md` |
-
-The same clobber-safe contract applies as with the sync script: `.scaffold-keep` paths are never touched, differing files become `<file>.scaffold-new` sidecars, and `--force` overrides that.
-
-The tool emits a JSON manifest on stdout listing every file written, skipped, or sidecarred — pipe it to `jq` or capture it for CI.
-
-**Refresh registered skills (replay on sync):**
-
-Once `.sync/hoisted` exists, re-emit all registered skills from scaffold's current ref in one call — no need to retype the names list:
-
-```bash
-node tools/hoist-skill/run --from-manifest --into ../my-project
-```
-
-This is the call a consumer's `/pull-scaffold` makes to keep hoisted skills up to date. Clobber-safe: locally edited files become sidecars; `.scaffold-keep` paths are skipped.
-
-**Pin to a specific ref:**
-
-```bash
-node tools/hoist-skill/run \
-  --names feature-chain,tdd \
-  --harness claude \
-  --into ../my-project \
-  --ref v1.2.0
-```
-
-The ref is stamped in `.sync/hoisted` per entry so replay is reproducible.
-
-**Plan mode (for curl-only consumers):**
-
-Pull-only consumers that have no scaffold clone can fetch just the files they need. `--plan` prints the exact repo-relative source paths to curl — without writing anything:
-
-```bash
-node tools/hoist-skill/run \
-  --names tdd,feature-chain \
-  --harness claude \
-  --plan
-```
-
-```json
-{
-  "ref": "main",
-  "harness": "claude",
-  "sources": [
-    { "path": "tools/hoist-skill/run", "required": true },
-    { "path": ".claude/skills/RESOLVER.md", "required": true },
-    { "path": "skills/tdd.md", "required": true, "ref": "main" },
-    { "path": ".claude/skills/tdd/SKILL.md", "required": false, "ref": "main" },
-    { "path": "skills/feature-chain.md", "required": true, "ref": "main" },
-    { "path": ".claude/skills/feature-chain/SKILL.md", "required": false, "ref": "main" }
-  ]
-}
-```
-
-`required: false` sources are generated by the emitter when absent (a curl 404
-on them is non-fatal).
-
-Combine with `--from-manifest` to get the source list for all registered skills at once. Use `--no-record` to suppress manifest writes when testing or doing dry-run checks.
-
-> **Note for pull-only consumers:** per-harness wrapper forms (`.claude/skills/<n>/SKILL.md`, `.cursor/rules/<n>.mdc`, etc.) are generated by the emitter when no upstream file exists. They may not be present in scaffold's repo as committed files, so a `curl` against a planned source path can 404. Treat any 404 on a planned source as non-fatal — the emitter generates the wrapper from the skill body and RESOLVER metadata instead.
-
-## Skill engine
-
-Skills are indexed in a central routing table, `.claude/skills/RESOLVER.md`,
-which maps each skill to its invocation regex and path. A linter keeps the
-table and the skills on disk in sync:
-
-```bash
-node scripts/check-resolvable.ts          # errors block, DRY duplication warns
-node scripts/check-resolvable.ts --strict # DRY duplication also blocks
-```
-
-It enforces nine phases: **Reachability** (no skill orphaned from the table),
-**Ambiguity** (no two skills share a slash-command route), **DRY** (duplicated
-prose blocks should move to `lib/`), **MECE** (no two skills with overlapping
-purpose — merge via args), **Wrapper integrity** (each harness wrapper
-`@`-includes the canonical skill body instead of duplicating it), **Cursor
-parity** (every skill has a `.cursor/rules/<slug>.mdc` mirror), **Antigravity
-parity** (every skill has a `.agents/skills/<slug>/SKILL.md` +
-`.agent/workflows/<slug>.md` pair for Google Antigravity), **Frontmatter parity**
-(every wrapper's description matches the Claude form), and **Scaffold-sync**
-(every skill is registered in `.github/scaffold-files.txt` so it propagates
-downstream).
-
-Enable it as a pre-commit gate:
-
-```bash
-git config core.hooksPath .githooks
-```
-
-New skills are created with **`/skillify`**, which reconstructs the session,
-interviews briefly, generates a `SKILL.md`, Cursor mirror, and Antigravity
-wrappers, registers it in RESOLVER, validates, and opens a PR back to scaffold
-so all repos inherit it.
-
-## Global installation
-
-To make the skills available in every project (not just this one):
-
-```bash
-mkdir -p ~/.claude/skills
-cp -r .claude/skills/* ~/.claude/skills/
-```
-
-Project-level skills override global ones when names match.
-
-## session-start hook
-
-`.claude/session-start/hook.sh` runs at every session start. It fetches `origin/main` silently and warns Claude if the current branch is behind — prompting a rebase or pull before new feature work begins. Always exits 0 so a network failure never blocks a session.
-
-## read-once hooks
-
-`.claude/read-once/` contains a pair of hooks that prevent Claude from re-reading files it already has in context, saving tokens on large sessions. Controlled via env vars:
-
-| Var | Default | Effect |
-|---|---|---|
-| `READ_ONCE_MODE` | `warn` | `warn` allows re-read with advisory; `deny` blocks it |
-| `READ_ONCE_TTL` | `1200` | Seconds before a cached read expires |
-| `READ_ONCE_DIFF` | `0` | Set to `1` to show only diffs on changed files |
-| `READ_ONCE_DISABLED` | `0` | Set to `1` to disable entirely |
-
-## Branch Protection Setup
-
-One-time manual step required after the CI workflows are in place.
-
-**[→ Open Ruleset Settings for `victusfate/scaffold`](https://github.com/victusfate/scaffold/settings/rules)**
-
-Go to **Settings → Rules → Rulesets**, edit (or create) the ruleset targeting `main`, and enable:
-
-**Restrict pushes:**
-- Block force pushes ✓
-- Restrict deletions ✓
-
-**Require pull requests:**
-- Require a pull request before merging ✓
-- Required approvals: `0`
-- Dismiss stale reviews when new commits are pushed ✓
-
-**Require status checks:**
-1. Enable **Require status checks to pass**
-2. Enable **Require branches to be up to date before merging** (under additional settings)
-3. Click **+ Add checks** → type `verify` → select **verify — GitHub Actions**
-
-> **`verify` not in the dropdown?** It only registers after at least one PR has run `.github/workflows/ci.yml`. Open a draft PR, let CI run, close it, then add the check here.
-
-**Bypass list:** Add `Repository admin` → Always allow (for emergency hotfixes).
-
-Or just run `/protect-branch` in Claude Code — it opens this page and walks you through it.
-
-> **Why required approvals: 0?** GitHub rulesets hard-block PR authors from approving their own PRs when required approvals > 0. Since agents run as your GitHub account, setting approvals to 1 locks you out of approving agent PRs — and there's no override in rulesets. The real gates are CI (tests must pass) and `CODEOWNERS` protecting `.github/workflows/`.
-
-> **Long-term fix** — create a dedicated bot GitHub account for the agent. Set Required approvals back to 1 and re-enable "Require review from Code Owners". Agents open PRs as the bot; you approve as yourself; neither party is locked out.
-
-> **Known limitation — agents share your GitHub token.** Agents in this workflow run as your GitHub account, so GitHub can't distinguish an agent approval from a human one. "Required approvals: 1" can technically be satisfied by the agent approving its own PR. The practical guards are: CI must pass, workflow changes always need your sign-off via CODEOWNERS, and an agent would need to be explicitly told to self-approve. The clean long-term fix is a dedicated bot GitHub account for the agent — that separates author from reviewer cleanly and lets you keep "prevent authors from approving their own PRs" without locking yourself out.
-
-### How releases work after setup
-
-No manual steps needed day-to-day:
-
-1. Developer writes [conventional commits](https://www.conventionalcommits.org/) (`feat:`, `fix:`, etc.) on the branch
-2. The `create-pr` skill computes the bump from the branch's commits (`scripts/compute-bump.ts`) and commits the new `package.json` version **on the branch**, before opening the PR
-3. `verify` job runs `npm test` (all tool/script suites, the skill-engine linter, the skill/rubric assertion suites, and the `docs/skills.md` freshness check) on the bump commit — must pass before merge is allowed. A separate **Quality Gate** workflow (`quality.yml`) runs the mechanical checks on every PR.
-4. PR merges to `main` with the version bump included
-5. `release.yml` reads the version from `package.json` on `main` and pushes the `v<version>` tag
-
-### Commit → version mapping
-
-| Prefix | Bump |
-|---|---|
-| `fix:` | patch (`1.0.0 → 1.0.1`) |
-| `feat:` | minor (`1.0.0 → 1.1.0`) |
-| `feat!:` or `BREAKING CHANGE` in body | major (`1.0.0 → 2.0.0`) |
-| `chore:`, `docs:`, `refactor:`, etc. | no release |
-
-## Credits
-
-The `co-plan`, `to-prd`, and `tdd` skills are adapted from [Matt Pocock's skills repo](https://github.com/mattpocock/skills/tree/main/skills/engineering). The core workflow — careful design Q&A → PRD → vertical-slice TDD — is his. Copyright and MIT terms for these skills and `retro` are in [THIRD_PARTY_NOTICES.txt](THIRD_PARTY_NOTICES.txt), shipped separately from agent instructions.
-
-Other skills adapted from MIT-licensed projects:
-
-- `qa` — [garrytan/gstack](https://github.com/garrytan/gstack) (`qa`)
-- `investigate` — [obra/superpowers](https://github.com/obra/superpowers) (`systematic-debugging`, `verification-before-completion`)
-- `deslop` — [petergyang/no-ai-slop](https://github.com/petergyang/no-ai-slop)
-- `ponytail` — [DietrichGebert/ponytail](https://github.com/DietrichGebert/ponytail)
-- `improve` — [shadcn/improve](https://github.com/shadcn/improve)
+This repo is built on [victusfate/scaffold](https://github.com/victusfate/scaffold). Coding agents working here follow [`AGENTS.md`](AGENTS.md), and the skills behind that workflow are listed in [`docs/skills.md`](docs/skills.md).
 
 ## License
 
-scaffold itself is MIT (see `LICENSE`).
-
-Repos generated from this template are **not** bound by it. `LICENSE` is never
-synced, so you are free to relicense — pick any license, remove `LICENSE`
-entirely, or keep the repo closed-source/private. Scaffold never re-adds or
-overwrites it on sync.
+MIT. See [`LICENSE`](LICENSE).

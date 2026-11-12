@@ -1,0 +1,74 @@
+name: Studio
+
+# Mind Meld Studio product checks: packages/*, fixtures/*, infra/*.
+on:
+  pull_request:
+    branches: [main]
+    paths: ['packages/**', 'fixtures/**', 'infra/**', 'package.json', 'package-lock.json', '.github/workflows/studio.yml']
+  push:
+    branches: [main]
+    paths: ['packages/**', 'fixtures/**', 'infra/**', 'package.json', 'package-lock.json', '.github/workflows/studio.yml']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: studio-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version-file: .node-version
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - run: npm run studio:typecheck
+      - run: npx eslint packages --max-warnings 0
+      - run: bash scripts/check-quality-mechanical.sh $(git ls-files 'packages/*.ts' 'packages/*.tsx' 'infra/*.ts')
+
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version-file: .node-version
+          cache: npm
+      - run: npm ci
+      - name: Prepare the sandbox image (Studio never pulls during a run)
+        run: docker pull node:26-alpine@sha256:8996bb5821d62a8fd9bb27c1cb07462f3fdce6e47d640c6a881ead0b064ce216 && docker tag node:26-alpine@sha256:8996bb5821d62a8fd9bb27c1cb07462f3fdce6e47d640c6a881ead0b064ce216 node:26-alpine
+      - name: Install Playwright Chromium for browser/Electron end-to-end tests
+        run: |
+          npx playwright install --with-deps chromium
+          sudo apt-get install -y xvfb
+      - name: Build
+        run: npm run studio:build --if-present
+      - name: Unit, integration, sandbox and end-to-end tests
+        env:
+          RUN_MINDMELD_SANDBOX: '1'
+        run: npm run studio:test
+
+  image:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version-file: .node-version
+      - run: docker build -f infra/docker/Dockerfile -t mindmeld-studio:local .
+      - run: docker pull node:26-alpine@sha256:8996bb5821d62a8fd9bb27c1cb07462f3fdce6e47d640c6a881ead0b064ce216 && docker tag node:26-alpine@sha256:8996bb5821d62a8fd9bb27c1cb07462f3fdce6e47d640c6a881ead0b064ce216 node:26-alpine
+      - run: node infra/smoke-test.ts mindmeld-studio:local
+      - run: docker compose -f infra/compose/compose.yml config --quiet

@@ -1,0 +1,17 @@
+{
+  "name": "@mindmeld/connectors",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Mind Meld Studio connectors: OCI sandboxes, local model endpoints, repository sources.",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "test": "node --test --test-reporter=spec \"test/*.test.ts\"",
+    "test:coverage": "node --test --experimental-test-coverage --test-coverage-include=\"src/**\" --test-coverage-lines=95 --test-coverage-branches=85 --test-coverage-functions=95 --test-reporter=dot \"test/*.test.ts\""
+  },
+  "dependencies": {
+    "@mindmeld/core": "0.1.0"
+  }
+}

@@ -1,0 +1,21 @@
+{
+  "name": "@mindmeld/client",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Typed HTTP client for the Mind Meld Studio API, shared by the web UI, desktop app and VS Code extension.",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "test": "node --test --test-reporter=spec \"test/*.test.ts\"",
+    "test:coverage": "node --test --experimental-test-coverage --test-coverage-include=\"src/**\" --test-coverage-lines=95 --test-coverage-branches=85 --test-coverage-functions=95 --test-reporter=dot \"test/*.test.ts\""
+  },
+  "dependencies": {
+    "@mindmeld/core": "0.1.0"
+  },
+  "devDependencies": {
+    "@mindmeld/server": "0.1.0",
+    "@mindmeld/connectors": "0.1.0"
+  }
+}

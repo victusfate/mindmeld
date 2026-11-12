@@ -1,5 +1,7 @@
 node_modules/
 dist/
+# electron-builder output (packages/desktop)
+release/
 build/
 coverage/
 
@@ -24,8 +26,11 @@ coverage/
 .vscode/
 diagrams/
 
-# Pinned security scanners (scripts/setup-security-tools.sh) — machine-local, never committed
+# Local tool caches — machine-local, never committed
 .tooling/
 
 # Subagent git worktrees (Claude Code isolation: worktree); local only, never committed.
 .claude/worktrees/
+
+# VS Code extension packages (built by packages/vscode `npm run package`)
+*.vsix

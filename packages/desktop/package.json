@@ -1,0 +1,25 @@
+{
+  "name": "@mindmeld/desktop",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Mind Meld Studio desktop app (Electron) hosting the localhost backend in-process.",
+  "author": "Mind Meld Studio",
+  "main": "dist/main.mjs",
+  "scripts": {
+    "build": "node build.ts",
+    "start": "node build.ts && electron dist/main.mjs",
+    "test": "node --test --test-reporter=spec test/policy.test.ts test/menu.test.ts test/shell-path.test.ts",
+    "test:e2e": "node build.ts && xvfb-run -a node --test --test-reporter=spec test/e2e.test.ts",
+    "package": "node build.ts && electron-builder --config electron-builder.json",
+    "package:dir": "node build.ts && electron-builder --config electron-builder.json --linux dir"
+  },
+  "devDependencies": {
+    "@mindmeld/core": "0.1.0",
+    "@mindmeld/server": "0.1.0",
+    "electron": "45.3.0",
+    "electron-builder": "26.18.0",
+    "esbuild": "0.28.2",
+    "playwright": "1.65.0"
+  }
+}

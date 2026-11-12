@@ -1,0 +1,28 @@
+{
+  "name": "@mindmeld/web",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Mind Meld Studio browser UI: source-linked map, sandboxed runs, replay, run comparison and cited Q&A.",
+  "scripts": {
+    "build": "node build.ts",
+    "test": "node --test --test-reporter=spec \"test/*.test.ts\""
+  },
+  "dependencies": {
+    "@fontsource/ibm-plex-mono": "5.3.0",
+    "@fontsource/ibm-plex-sans": "5.3.0",
+    "@mindmeld/client": "0.1.0",
+    "@xyflow/react": "12.12.1",
+    "react": "19.3.1",
+    "react-dom": "19.3.1"
+  },
+  "devDependencies": {
+    "@mindmeld/connectors": "0.1.0",
+    "@mindmeld/core": "0.1.0",
+    "@mindmeld/server": "0.1.0",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "esbuild": "0.28.2",
+    "playwright": "1.65.0"
+  }
+}
