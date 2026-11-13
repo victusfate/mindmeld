@@ -6,9 +6,9 @@ import { sha256, snapshotHashOf } from './hash.ts';
 import type { Language, SkippedFile, SourceFile } from './schema.ts';
 
 export interface ImportLimits { maxFiles: number; maxFileBytes: number; maxTotalBytes: number; maxDepth: number }
-const MAX_FILES = 5000;
+const MAX_FILES = 20_000;
 const MAX_FILE_BYTES = 1_000_000;
-const MAX_TOTAL_BYTES = 50_000_000;
+const MAX_TOTAL_BYTES = 150_000_000;
 const MAX_DEPTH = 32;
 export const DEFAULT_LIMITS: ImportLimits = { maxFiles: MAX_FILES, maxFileBytes: MAX_FILE_BYTES, maxTotalBytes: MAX_TOTAL_BYTES, maxDepth: MAX_DEPTH };
 
@@ -16,8 +16,12 @@ const IGNORED_DIRS = new Set(['node_modules', '.git', 'dist', 'build', 'out', 'c
 const LANGUAGES: Record<string, Language> = {
   '.ts': 'typescript', '.mts': 'typescript', '.cts': 'typescript', '.tsx': 'typescript',
   '.js': 'javascript', '.mjs': 'javascript', '.cjs': 'javascript', '.jsx': 'javascript',
+  '.rs': 'rust', '.py': 'python', '.gd': 'gdscript',
   '.json': 'json', '.md': 'markdown', '.txt': 'text',
 };
+/** Data files are kept for citations and Q&A but never indexed, so they only get budget that code leaves over. */
+const DATA_LANGUAGES = new Set<Language>(['json', 'markdown', 'text']);
+const tierOf = (language: Language): number => (DATA_LANGUAGES.has(language) ? 1 : 0);
 
 export interface ImportedRepo {
   files: SourceFile[];
@@ -46,21 +50,12 @@ export function isSafeRelativePath(path: string): boolean {
     && path.split('/').every(part => part !== '' && part !== '.' && part !== '..');
 }
 
-interface WalkState { root: string; limits: ImportLimits; ignored: (n: string) => boolean; out: ImportedRepo; total: number }
+interface Candidate { full: string; rel: string; size: number; language: Language }
+interface WalkState { root: string; limits: ImportLimits; ignored: (n: string) => boolean; out: ImportedRepo; candidates: Candidate[] }
 
 function visitFile(state: WalkState, full: string, rel: string): void {
   const language = LANGUAGES[extname(rel).toLowerCase()];
-  if (!language) return;
-  const stat = lstatSync(full);
-  if (stat.size > state.limits.maxFileBytes) { state.out.skipped.push({ path: rel, reason: 'file too large' }); return; }
-  if (state.out.files.length >= state.limits.maxFiles) { state.out.skipped.push({ path: rel, reason: 'file limit reached' }); return; }
-  if (state.total + stat.size > state.limits.maxTotalBytes) { state.out.skipped.push({ path: rel, reason: 'total byte limit reached' }); return; }
-  const bytes = readFileSync(full);
-  if (bytes.includes(0)) { state.out.skipped.push({ path: rel, reason: 'binary content' }); return; }
-  state.total += bytes.length;
-  const content = bytes.toString('utf8');
-  state.out.files.push({ path: rel, hash: sha256(bytes), bytes: bytes.length, language });
-  state.out.contents.set(rel, content);
+  if (language) state.candidates.push({ full, rel, size: lstatSync(full).size, language });
 }
 
 function walk(state: WalkState, dir: string, depth: number): void {
@@ -77,11 +72,30 @@ function walk(state: WalkState, dir: string, depth: number): void {
   }
 }
 
+/** Admits candidates code-first, then path order, until the file or byte budget is spent; reads only what it admits. */
+function admit(state: WalkState): void {
+  const { limits, out } = state;
+  const ordered = [...state.candidates].sort((a, b) => tierOf(a.language) - tierOf(b.language) || (a.rel < b.rel ? -1 : 1));
+  let total = 0;
+  for (const { full, rel, size, language } of ordered) {
+    if (size > limits.maxFileBytes) { out.skipped.push({ path: rel, reason: 'file too large' }); continue; }
+    if (out.files.length >= limits.maxFiles) { out.skipped.push({ path: rel, reason: 'file limit reached' }); continue; }
+    if (total + size > limits.maxTotalBytes) { out.skipped.push({ path: rel, reason: 'total byte limit reached' }); continue; }
+    const bytes = readFileSync(full);
+    if (bytes.includes(0)) { out.skipped.push({ path: rel, reason: 'binary content' }); continue; }
+    total += bytes.length;
+    out.files.push({ path: rel, hash: sha256(bytes), bytes: bytes.length, language });
+    out.contents.set(rel, bytes.toString('utf8'));
+  }
+}
+
 export function importRepository(rootPath: string, limits: ImportLimits = DEFAULT_LIMITS): ImportedRepo {
   const root = realpathSync(rootPath);
   if (!lstatSync(root).isDirectory()) throw new Error('repository root must be a directory');
   const out: ImportedRepo = { files: [], contents: new Map(), skipped: [], snapshotHash: '' };
-  walk({ root, limits, ignored: gitignoreMatcher(root), out, total: 0 }, root, 0);
+  const state: WalkState = { root, limits, ignored: gitignoreMatcher(root), out, candidates: [] };
+  walk(state, root, 0);
+  admit(state);
   out.snapshotHash = snapshotHashOf(Object.fromEntries(out.files.map(f => [f.path, f.hash])));
   return out;
 }
