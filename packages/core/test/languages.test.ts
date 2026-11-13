@@ -115,3 +115,41 @@ test('rust: free functions, impl and trait methods, types, visibility, async and
   assert.equal(edge(idx, 'sim/src/combat.rs#Ship.tick', 'sim/src/combat.rs#Ship.new'), 'name-match');
   assert.equal(idx.edges.filter(e => e.from === 'sim/src/combat.rs#Ship.tick').length, 4);
 });
+
+test('gdscript: script functions, inner classes, implicit self and class-qualified calls', () => {
+  const idx = index({
+    'godot/player.gd': [
+      'class_name Player',
+      'extends Node',
+      '',
+      'static func make(a: int, b := 2) -> Player:',
+      '\treturn Player.new()',
+      '',
+      'func _ready():',
+      '\tself.heal(1)',
+      '\theal(2)',
+      '\tvar x = Helper.compute(3)',
+      '',
+      'func heal(n):',
+      '\tpass',
+      '',
+      'class Inner:',
+      '\tfunc go(speed):',
+      '\t\tself.stop()',
+      '\t\tstop()',
+      '\tfunc stop():',
+      '\t\tpass',
+    ].join('\n'),
+    'godot/helper.gd': 'class_name Helper\n\nstatic func compute(v):\n\treturn v\n',
+  });
+  const ready = symbol(idx, 'godot/player.gd#_ready')!;
+  assert.deepEqual([ready.kind, ready.exported, ready.async, ready.span.startLine, ready.span.endLine], ['function', false, false, 7, 10]);
+  assert.deepEqual(symbol(idx, 'godot/player.gd#make')?.params, ['a', 'b']);
+  assert.equal(symbol(idx, 'godot/player.gd#Inner')?.kind, 'class');
+  assert.equal(symbol(idx, 'godot/player.gd#Inner.go')?.kind, 'method');
+  assert.equal(edge(idx, 'godot/player.gd#_ready', 'godot/player.gd#heal'), 'this-member');
+  assert.equal(idx.edges.filter(e => e.from === 'godot/player.gd#_ready' && e.to === 'godot/player.gd#heal').map(e => e.resolution).sort().join(), 'local,this-member');
+  assert.equal(edge(idx, 'godot/player.gd#_ready', 'godot/helper.gd#compute'), 'name-match');
+  assert.deepEqual(idx.edges.filter(e => e.from === 'godot/player.gd#Inner.go').map(e => [e.to, e.resolution]),
+    [['godot/player.gd#Inner.stop', 'this-member'], ['godot/player.gd#Inner.stop', 'local']]);
+});
