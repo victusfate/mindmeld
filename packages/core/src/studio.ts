@@ -151,6 +151,8 @@ export class Studio {
   /** Allowlisting is an explicit user act stored by Studio; nothing in the studied repo can register an entry. */
   addEntry(projectId: string, symbolId: string, note = ''): Entry {
     const s = this.symbol(projectId, symbolId);
+    const language = this.snapshot(projectId).files.find(f => f.path === s.span.file)?.language;
+    if (language !== 'typescript' && language !== 'javascript') throw new ValidationError(`runs support TypeScript and JavaScript only; ${s.span.file} is ${language}`);
     if (!s.exported || !['function', 'variable-function'].includes(s.kind)) throw new ValidationError('only exported functions can be allowlisted');
     return this.store.addEntry(projectId, symbolId, note.slice(0, MAX_NOTE));
   }
