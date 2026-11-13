@@ -24,6 +24,8 @@ export interface Extracted { symbols: CodeSymbol[]; calls: CallSite[]; imports: 
 export interface LanguageAdapter {
   readonly language: GrammarLanguage;
   readonly extensions: readonly string[];
+  /** A bare `f()` may call a method of the enclosing class or script (GDScript), not only a free function. */
+  readonly implicitSelf?: boolean;
   extract(root: Node, file: SourceFile): Extracted;
   /** Maps an import binding to a repo file (and the name it binds there), or null when it is outside the file set. */
   resolveImport?(fromFile: string, binding: ImportBinding, files: ReadonlySet<string>): ResolvedImport | null;

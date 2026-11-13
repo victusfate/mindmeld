@@ -5,10 +5,11 @@ import type { Grammars } from './grammars.ts';
 import type { CallSite, ImportBinding, LanguageAdapter, ResolvedImport } from './languages/adapter.ts';
 import { python } from './languages/python.ts';
 import { rust } from './languages/rust.ts';
+import { gdscript } from './languages/gdscript.ts';
 import type { FileImport, StaticIndex } from './indexer.ts';
 import type { CodeSymbol, EdgeResolution, SourceFile, StaticEdge } from './schema.ts';
 
-const ADAPTERS: readonly LanguageAdapter[] = [python, rust];
+const ADAPTERS: readonly LanguageAdapter[] = [python, rust, gdscript];
 /** A method name shared by more symbols than this is too common to suggest a call (`get`, `new`, `_ready`). */
 export const NAME_MATCH_LIMIT = 3;
 
@@ -50,15 +51,22 @@ function nameMatch(project: Project, file: FileFacts, kind: NameKind, name: stri
   return candidates.length <= NAME_MATCH_LIMIT ? candidates.map((m): Target => [m.id, 'name-match']) : [];
 }
 
-function plainTargets(callee: string, file: FileFacts, project: Project): Target[] {
-  const local = file.symbols.find(s => s.name === callee && s.kind === 'function');
+/** The enclosing type of a method (`Type` of `Type.f`), or null for a free function. */
+const ownType = (owner: CodeSymbol): string | null => (owner.kind === 'method' ? owner.name.split('.')[0] : null);
+
+function plainTargets(callee: string, owner: CodeSymbol, file: FileFacts, project: Project): Target[] {
+  const type = file.adapter.implicitSelf ? ownType(owner) : null;
+  const local = file.symbols.find(s => s.kind !== 'class' && s.name === (type ? `${type}.${callee}` : callee))
+    ?? file.symbols.find(s => s.name === callee && s.kind === 'function');
   if (local) return [[local.id, 'local']];
   const bound = file.bindings.get(callee);
   return bound?.name ? known(project, `${bound.file}#${bound.name}`, 'import') : nameMatch(project, file, 'function', callee);
 }
 
+/** `self.f()`: a method of the owner's type, or for a free function in a self-bearing script (GDScript) a function of the same file. */
 function selfTargets(callee: string, owner: CodeSymbol, file: FileFacts, project: Project): Target[] {
-  const own = owner.kind === 'method' ? known(project, `${owner.span.file}#${owner.name.split('.')[0]}.${callee}`, 'this-member') : [];
+  const type = ownType(owner);
+  const own = known(project, `${owner.span.file}#${type ? `${type}.` : ''}${callee}`, 'this-member');
   return own.length ? own : nameMatch(project, file, 'method', callee);
 }
 
@@ -69,7 +77,7 @@ function memberTargets(callee: string, object: string | null, file: FileFacts, p
 
 function targets({ callee, receiver }: CallSite, owner: CodeSymbol, file: FileFacts, project: Project): Target[] {
   switch (receiver.kind) {
-    case 'none': return plainTargets(callee, file, project);
+    case 'none': return plainTargets(callee, owner, file, project);
     case 'self': return selfTargets(callee, owner, file, project);
     case 'member': return memberTargets(callee, receiver.object, file, project);
     case 'path': {
