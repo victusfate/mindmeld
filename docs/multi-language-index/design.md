@@ -30,7 +30,7 @@
 | The web UI does not branch on language | `grep language packages/web/src` | verified: no matches | — |
 | VS Code's extension host provides `node:sqlite` (the store needs it) | Load the bundled backend in the extension host (e2e or a real VS Code run) | verified 2026-11-13: VS Code 1.146 extension host (Electron 43.8.6, Node v24.22.1) and the WSL VS Code server's Node v24.22.1 both open an in-memory `DatabaseSync` | Fall back to D9's external-backend setting as the default and record it |
 | 20,000 files / 150 MB fits memory and import time on a developer machine | Time and measure RSS importing voidhorizon | unknown | Lower the defaults; rely on `include` |
-| The bounded name-match keeps graphs readable | Count voidhorizon edges and the share that are name-match | unknown | Lower the bound or drop name-match for the new languages |
+| The bounded name-match keeps graphs readable | Count voidhorizon edges and the share that are name-match | disproved 2026-11-13: 60% of edges were name matches, mostly library calls | D6 revised: no name match on unknown receivers |
 
 ## Canonical Vocabulary
 | Term | Definition |
@@ -82,13 +82,21 @@ adapters beside it, behind one dispatch by file extension.
 **Alternatives considered:** New kinds (`struct`, `trait`, `module`) — clearer but changes the API surface.
 
 ### D6: Call-edge resolution for new languages reuses existing resolutions
-**Decision:** `local` (callee defined in the same file), `this-member` (`self.x()` to a method of the
-enclosing type), `import` (Python `from m import f` / `import m` resolved to a repo file), `name-match`
-(any other call whose name matches symbols elsewhere). A name-match fans out to at most 3 targets
-(`NAME_MATCH_LIMIT`); a name with more candidates produces no edge.
-**Rationale:** Same evidence vocabulary as TS; the UI already shows name-match as the weakest kind. Without a
-bound, names like `new`, `get` or `_ready` would connect everything.
-**Alternatives considered:** Rust `use`-path and GDScript `preload`/`class_name` resolution — deferred.
+**Decision (revised 2026-11-13 after measuring voidhorizon):** `local` (callee defined in the same file, or for
+GDScript in the same class/script), `this-member` (`self.x()` to a method of the enclosing type), `import`
+(Python `from m import f` / `import m` resolved to a repo file; GDScript `ClassName.f()` resolved through the file
+declaring `class_name ClassName`, which Godot registers globally), and `name-match` only where the call names its
+target precisely: Rust/GDScript `Type::f()` / `Type.f()` against methods qualified `Type.f`, and Rust bare or
+module-path calls against free functions. A name match fans out to at most 3 targets (`NAME_MATCH_LIMIT`).
+Calls on an unknown receiver (`x.get()`) produce no edge in the new languages.
+**Rationale:** The first version also name-matched unknown-receiver calls. On voidhorizon that made 99,768 of
+165,083 edges (60%) name matches, mostly library calls (`dict.get` 12,290, `get_tree().quit()` 5,510,
+`list.append` 4,771, `Vec::iter` 2,801) linked to unrelated repo methods sharing the name — the bound limits
+candidates per name, not false calls. Rust keeps free-function matching because it has no import resolution here
+and a bare call cannot reach an inherited method; in Python an unresolved bare call is a builtin, and in GDScript
+it is usually an inherited engine method.
+**Alternatives considered:** a stdlib/engine name denylist (unbounded upkeep); a lower bound (does not address
+library calls on a uniquely named repo method); Rust `use`-path resolution and GDScript `preload` — deferred.
 
 ### D7: Import budget keeps code first and the caps grow
 **Decision:** The import walks once to list candidate files (path, size, language), then admits them in
@@ -146,7 +154,7 @@ flowchart LR
   user sees an empty map and the skipped list explains nothing was in scope.
 - Scenario: `include` contains `..` or an absolute path → rejected with a validation error.
 - Scenario: a Python method calls `self.helper()` where `helper` is in a base class in another file →
-  name-match edge (bounded), not this-member.
+  no edge (base classes are not resolved), never a guess.
 - Scenario: the user allowlists an exported Rust/Python/GDScript function → rejected with a validation
   error naming the language. Today's allowlist check (`packages/core/src/studio.ts:146`) only tests
   `exported` and kind, so this PR adds a language check; runs stay JS/TS-only.

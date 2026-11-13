@@ -41,8 +41,8 @@ starts its own backend.
    experiments, vendored plugins) stays out.
 6. As a user, I want a re-import after upgrading Studio to re-index even if the source did not change, so
    that new language support shows up on existing projects.
-7. As a user, I want common method names (`new`, `get`, `_ready`) not to wire every file together, so that
-   the graph stays readable.
+7. As a user, I want library calls (`d.get()`, `items.append()`, `get_tree().quit()`) not to be linked to
+   unrelated repo methods that share the name, so that the graph shows calls that can actually happen.
 8. As a user, I want allowlisting a Rust/Python/GDScript function to fail with a clear reason, so that I know
    runs are JS/TS-only.
 9. As a VS Code user, I want the extension to work right after install, with no server to start or URL to
@@ -67,8 +67,9 @@ starts its own backend.
 - **Grammars:** vendored `.wasm` under core with a manifest (package, version, license, sha256) and a
   regeneration script. Loaded once, asynchronously, at backend start; Studio receives the loaded grammars
   through its options. Without grammars, new-language files are imported as files but yield no symbols.
-- **Edge resolution:** `local`, `this-member`, `import` (Python), and bounded `name-match`
-  (`NAME_MATCH_LIMIT = 3`).
+- **Edge resolution:** `local`, `this-member`, `import` (Python imports; GDScript `class_name`), and bounded
+  `name-match` (`NAME_MATCH_LIMIT = 3`) only for type-qualified calls and Rust free functions; no edge for calls
+  on an unknown receiver (design D6, revised after the voidhorizon measurement).
 - **Indexer version:** includes the grammar set; a re-import reuses the latest snapshot only if both the
   source hash and the indexer version match.
 - **Allowlist:** rejects symbols whose file language is not TS/JS.

@@ -1,6 +1,6 @@
 // GDScript adapter: a script's funcs are its own methods, so they are top-level functions here; inner `class`
-// blocks add classes and methods. `class_name` globals and `preload` paths are not resolved, so `Helper.f()`
-// across files is a name match.
+// blocks add classes and methods. `class_name` registers the script globally, so `Helper.f()` resolves through it;
+// `preload` paths are not resolved.
 import type { Node } from 'web-tree-sitter';
 import type { SourceFile } from '../schema.ts';
 import { spanOfNode, toSymbol, type Extracted, type LanguageAdapter, type Receiver } from './adapter.ts';
@@ -38,15 +38,19 @@ function addFunction(out: Extracted, file: SourceFile, fn: Node, owner: string |
   }
 }
 
+function addClass(out: Extracted, file: SourceFile, node: Node): void {
+  const name = node.childForFieldName('name')?.text ?? '';
+  out.symbols.push(toSymbol(file, { node, name, kind: 'class', exported: isPublic(name), async: false, params: [] }));
+  const body = node.namedChildren.find(c => c.type === 'class_body');
+  for (const member of body?.namedChildren ?? []) if (member.type === 'function_definition') addFunction(out, file, member, name);
+}
+
 function extract(root: Node, file: SourceFile): Extracted {
   const out: Extracted = { symbols: [], calls: [], imports: [] };
   for (const stmt of root.namedChildren) {
     if (stmt.type === 'function_definition') addFunction(out, file, stmt, null);
-    if (stmt.type !== 'class_definition') continue;
-    const name = stmt.childForFieldName('name')?.text ?? '';
-    out.symbols.push(toSymbol(file, { node: stmt, name, kind: 'class', exported: isPublic(name), async: false, params: [] }));
-    const body = stmt.namedChildren.find(c => c.type === 'class_body');
-    for (const member of body?.namedChildren ?? []) if (member.type === 'function_definition') addFunction(out, file, member, name);
+    else if (stmt.type === 'class_definition') addClass(out, file, stmt);
+    else if (stmt.type === 'class_name_statement') out.globalType = stmt.childForFieldName('name')?.text;
   }
   return out;
 }

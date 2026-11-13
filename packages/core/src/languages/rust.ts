@@ -1,5 +1,6 @@
 // Rust adapter: top-level fns, structs, enums and traits, methods in `impl` and `trait` blocks, and calls.
-// `use` paths are not resolved (module layout needs Cargo's view of the crate), so cross-file calls are name matches.
+// `use` paths are not resolved (module layout needs Cargo's view of the crate), so cross-file calls are name matches
+// on `Type::f` or on free functions; method calls on values of unknown type get no edge.
 import type { Node } from 'web-tree-sitter';
 import type { SourceFile } from '../schema.ts';
 import { callsIn, spanOfNode, toSymbol, type Extracted, type LanguageAdapter, type Receiver } from './adapter.ts';
@@ -87,4 +88,4 @@ function extract(root: Node, file: SourceFile): Extracted {
   return out;
 }
 
-export const rust: LanguageAdapter = { language: 'rust', extensions: ['.rs'], extract };
+export const rust: LanguageAdapter = { language: 'rust', extensions: ['.rs'], matchFreeFunctions: true, extract };

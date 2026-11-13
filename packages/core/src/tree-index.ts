@@ -10,16 +10,16 @@ import type { FileImport, StaticIndex } from './indexer.ts';
 import type { CodeSymbol, EdgeResolution, SourceFile, StaticEdge } from './schema.ts';
 
 const ADAPTERS: readonly LanguageAdapter[] = [python, rust, gdscript];
-/** A method name shared by more symbols than this is too common to suggest a call (`get`, `new`, `_ready`). */
+/** A name shared by more symbols than this is too common to suggest a call. */
 export const NAME_MATCH_LIMIT = 3;
 
 export const adapterFor = (path: string): LanguageAdapter | undefined => ADAPTERS.find(a => a.extensions.includes(extname(path)));
 
 interface FileFacts { adapter: LanguageAdapter; symbols: CodeSymbol[]; calls: CallSite[]; bindings: Map<string, ResolvedImport> }
-/** `byName` keys are `language:kind:name`, where name is the unqualified name for methods/functions and the
- * qualified one (`Type.name`) under kind `qualified`. */
-interface Project { byId: Map<string, CodeSymbol>; byName: Map<string, CodeSymbol[]> }
-type NameKind = 'method' | 'function' | 'qualified';
+/** `byName` keys are `language:kind:name`: free functions by name, methods by qualified name (`Type.name`).
+ * `globalTypes` maps `language:Name` to the file declaring that global type (GDScript `class_name`). */
+interface Project { byId: Map<string, CodeSymbol>; byName: Map<string, CodeSymbol[]>; globalTypes: Map<string, string> }
+type NameKind = 'function' | 'qualified';
 type Target = [string, EdgeResolution];
 
 interface FileImports { adapter: LanguageAdapter; path: string; imports: ImportBinding[] }
@@ -60,19 +60,31 @@ function plainTargets(callee: string, owner: CodeSymbol, file: FileFacts, projec
     ?? file.symbols.find(s => s.name === callee && s.kind === 'function');
   if (local) return [[local.id, 'local']];
   const bound = file.bindings.get(callee);
-  return bound?.name ? known(project, `${bound.file}#${bound.name}`, 'import') : nameMatch(project, file, 'function', callee);
+  if (bound?.name) return known(project, `${bound.file}#${bound.name}`, 'import');
+  return file.adapter.matchFreeFunctions ? nameMatch(project, file, 'function', callee) : [];
 }
 
 /** `self.f()`: a method of the owner's type, or for a free function in a self-bearing script (GDScript) a function of the same file. */
 function selfTargets(callee: string, owner: CodeSymbol, file: FileFacts, project: Project): Target[] {
   const type = ownType(owner);
-  const own = known(project, `${owner.span.file}#${type ? `${type}.` : ''}${callee}`, 'this-member');
-  return own.length ? own : nameMatch(project, file, 'method', callee);
+  return known(project, `${owner.span.file}#${type ? `${type}.` : ''}${callee}`, 'this-member');
 }
 
+/** `m.f()` resolves only through a module import; any other receiver's type is unknown, so no edge is guessed. */
 function memberTargets(callee: string, object: string | null, file: FileFacts, project: Project): Target[] {
   const bound = object === null ? undefined : file.bindings.get(object);
-  return bound && bound.name === null ? known(project, `${bound.file}#${callee}`, 'import') : nameMatch(project, file, 'method', callee);
+  return bound && bound.name === null ? known(project, `${bound.file}#${callee}`, 'import') : [];
+}
+
+/** `Type::f()` / `Type.f()`: a method qualified by that type, a function of the file declaring that global type,
+ * or (Rust, where `module::f()` looks the same) a free function by name. */
+function pathTargets(callee: string, path: string, file: FileFacts, project: Project): Target[] {
+  const qualified = nameMatch(project, file, 'qualified', `${path}.${callee}`);
+  if (qualified.length) return qualified;
+  const declaring = project.globalTypes.get(`${file.adapter.language}:${path}`);
+  const global = declaring ? known(project, `${declaring}#${callee}`, 'import') : [];
+  if (global.length) return global;
+  return file.adapter.matchFreeFunctions ? nameMatch(project, file, 'function', callee) : [];
 }
 
 function targets({ callee, receiver }: CallSite, owner: CodeSymbol, file: FileFacts, project: Project): Target[] {
@@ -80,10 +92,7 @@ function targets({ callee, receiver }: CallSite, owner: CodeSymbol, file: FileFa
     case 'none': return plainTargets(callee, owner, file, project);
     case 'self': return selfTargets(callee, owner, file, project);
     case 'member': return memberTargets(callee, receiver.object, file, project);
-    case 'path': {
-      const qualified = nameMatch(project, file, 'qualified', `${receiver.path}.${callee}`);
-      return qualified.length ? qualified : nameMatch(project, file, 'function', callee);
-    }
+    case 'path': return pathTargets(callee, receiver.path, file, project);
   }
 }
 
@@ -91,20 +100,20 @@ export function indexTreeSources(files: SourceFile[], contents: Map<string, stri
   const fileSet = new Set(files.map(f => f.path));
   const imports: FileImport[] = [];
   const facts: FileFacts[] = [];
+  const globalTypes = new Map<string, string>();
   for (const file of files) {
     const adapter = adapterFor(file.path);
     if (!adapter) continue;
     const extracted = grammars.withTree(adapter.language, contents.get(file.path) ?? '', root => adapter.extract(root, file));
     facts.push({ adapter, symbols: extracted.symbols, calls: extracted.calls, bindings: resolveBindings({ adapter, path: file.path, imports: extracted.imports }, fileSet, imports) });
+    if (extracted.globalType) globalTypes.set(`${adapter.language}:${extracted.globalType}`, file.path);
   }
-  const project: Project = { byId: new Map(), byName: new Map() };
+  const project: Project = { byId: new Map(), byName: new Map(), globalTypes };
   for (const { adapter, symbols } of facts) {
     for (const symbol of symbols) {
       project.byId.set(symbol.id, symbol);
       if (symbol.kind === 'function') addName(project, nameKey(adapter, 'function', symbol.name), symbol);
-      if (symbol.kind !== 'method') continue;
-      addName(project, nameKey(adapter, 'method', symbol.name.split('.').pop()!), symbol);
-      addName(project, nameKey(adapter, 'qualified', symbol.name), symbol);
+      if (symbol.kind === 'method') addName(project, nameKey(adapter, 'qualified', symbol.name), symbol);
     }
   }
   const edges: StaticEdge[] = facts.flatMap(file => file.calls.flatMap(call =>
