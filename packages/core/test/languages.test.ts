@@ -75,3 +75,43 @@ test('syntax errors keep the symbols that parsed and never throw', () => {
   const idx = index({ 'broken.py': 'def ok():\n    pass\n\ndef broken(:\n' });
   assert.ok(symbol(idx, 'broken.py#ok'));
 });
+
+test('rust: free functions, impl and trait methods, types, visibility, async and call resolution', () => {
+  const idx = index({
+    'sim/src/combat.rs': [
+      'pub struct Ship { hp: i32 }',
+      'enum Mode { Idle }',
+      'pub trait Damage { fn apply(&self, n: i32); }',
+      '',
+      'impl Ship {',
+      '    pub fn new(hp: i32) -> Self { Ship { hp } }',
+      '    pub async fn tick(&mut self, dt: f32) {',
+      '        self.repair();',
+      '        clamp(1);',
+      '        helpers::scale(2);',
+      '        Ship::new(3);',
+      '        println!("macro is not a call");',
+      '    }',
+      '    fn repair(&mut self) {}',
+      '}',
+      '',
+      'impl Damage for Ship { fn apply(&self, n: i32) { let _ = n; } }',
+      '',
+      'fn clamp(x: i32) -> i32 { x }',
+    ].join('\n'),
+    'sim/src/helpers.rs': 'pub fn scale(k: i32) -> i32 { k }\n',
+  });
+  assert.equal(symbol(idx, 'sim/src/combat.rs#Ship')?.kind, 'class');
+  assert.equal(symbol(idx, 'sim/src/combat.rs#Mode')?.exported, false);
+  assert.equal(symbol(idx, 'sim/src/combat.rs#Damage')?.kind, 'class');
+  const tick = symbol(idx, 'sim/src/combat.rs#Ship.tick')!;
+  assert.deepEqual([tick.kind, tick.async, tick.exported, tick.params, tick.span.startLine], ['method', true, true, ['self', 'dt'], 7]);
+  assert.equal(symbol(idx, 'sim/src/combat.rs#Ship.repair')?.exported, false);
+  assert.equal(symbol(idx, 'sim/src/combat.rs#Ship.apply')?.kind, 'method');
+  assert.equal(symbol(idx, 'sim/src/combat.rs#clamp')?.kind, 'function');
+  assert.equal(edge(idx, 'sim/src/combat.rs#Ship.tick', 'sim/src/combat.rs#Ship.repair'), 'this-member');
+  assert.equal(edge(idx, 'sim/src/combat.rs#Ship.tick', 'sim/src/combat.rs#clamp'), 'local');
+  assert.equal(edge(idx, 'sim/src/combat.rs#Ship.tick', 'sim/src/helpers.rs#scale'), 'name-match');
+  assert.equal(edge(idx, 'sim/src/combat.rs#Ship.tick', 'sim/src/combat.rs#Ship.new'), 'name-match');
+  assert.equal(idx.edges.filter(e => e.from === 'sim/src/combat.rs#Ship.tick').length, 4);
+});
