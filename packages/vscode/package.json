@@ -25,10 +25,24 @@
     "configuration": {
       "title": "Mind Meld Studio",
       "properties": {
+        "mindmeld.backend": {
+          "type": "string",
+          "enum": [
+            "embedded",
+            "external"
+          ],
+          "enumDescriptions": [
+            "Start the Studio backend inside VS Code (no separate server).",
+            "Connect to a separately started Studio server (Mind Meld: Connect)."
+          ],
+          "default": "embedded",
+          "description": "Where the Mind Meld Studio backend runs. Takes effect when the extension starts.",
+          "scope": "machine"
+        },
         "mindmeld.serverUrl": {
           "type": "string",
           "default": "http://127.0.0.1:8787",
-          "description": "Base URL of the Mind Meld Studio server. The access token is kept in VS Code secret storage, never in settings.",
+          "description": "Base URL of an external Mind Meld Studio server (used when mindmeld.backend is \"external\"). The access token is kept in VS Code secret storage, never in settings.",
           "scope": "machine"
         }
       }
@@ -155,7 +169,7 @@
   "scripts": {
     "build": "node build.ts",
     "test": "node --test --test-reporter=spec \"test/*.test.ts\"",
-    "package": "node build.ts && vsce package --no-dependencies --allow-missing-repository",
+    "package": "node build.ts --package && vsce package --no-dependencies --allow-missing-repository",
     "test:coverage": "node --experimental-test-coverage --test-coverage-include=\"src/**\" --test-coverage-lines=90 --test-coverage-branches=80 --test-coverage-functions=85 --test --test-reporter=spec \"test/*.test.ts\""
   },
   "devDependencies": {
