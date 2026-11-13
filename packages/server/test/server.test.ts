@@ -128,3 +128,14 @@ test('malformed percent-encoding is a 400, never a crash (static and API paths)'
   assert.equal((await call('GET', '/api/runs/%E0%A4%A')).status, 400);
   assert.equal((await call('GET', '/api/health')).status, 200, 'server still alive');
 });
+
+test('POST /api/projects accepts an optional include scope and rejects malformed ones', async () => {
+  const dir = copyFixture();
+  const scoped = await call('POST', '/api/projects', { body: { kind: 'local', ref: dir, include: ['src'] } });
+  assert.equal(scoped.status, 200, scoped.body);
+  assert.deepEqual(scoped.json.project.include, ['src']);
+  assert.ok(scoped.json.snapshot.files.every((f: { path: string }) => f.path.startsWith('src/')));
+  for (const include of ['src', [1], ['../x']]) {
+    assert.equal((await call('POST', '/api/projects', { body: { kind: 'local', ref: dir, include } })).status, 400, JSON.stringify(include));
+  }
+});

@@ -144,3 +144,23 @@ test('run workspace files are written read-only and the harness package.json win
   assert.deepEqual(JSON.parse(seen[0]), { type: 'module', private: true });
   assert.deepEqual(readdirSync(root), [], 'run workspace is removed afterwards');
 });
+
+test('an import scope limits the project to its directories, survives refresh and rejects unsafe paths', async () => {
+  const dir = copyFixture();
+  writeFileSync(join(dir, 'outside.ts'), 'export function outside() {}\n');
+  const studio = new Studio({ store: new EvidenceStore(':memory:'), sandbox: new HostProcessSandbox(), model: null, sources: [local] });
+  const { project, snapshot } = await studio.addProject({ kind: 'local', ref: dir, include: ['src'] });
+  assert.deepEqual(project.include, ['src']);
+  assert.ok(snapshot.files.length > 0 && snapshot.files.every(f => f.path.startsWith('src/')), snapshot.files.map(f => f.path).join());
+  writeFileSync(join(dir, 'outside.ts'), 'export function outsideChanged() {}\n');
+  appendFileSync(join(dir, 'src/game.ts'), '\n');
+  const refreshed = studio.refresh(project.id);
+  assert.ok(refreshed.files.every(f => f.path.startsWith('src/')));
+  assert.deepEqual(studio.store.getProject(project.id).include, ['src']);
+  const unscoped = await studio.addProject({ kind: 'local', ref: dir });
+  assert.equal(unscoped.project.include, undefined);
+  assert.ok(unscoped.snapshot.files.some(f => f.path === 'outside.ts'));
+  for (const bad of ['../etc', '/etc', 'src/../..', '']) {
+    await assert.rejects(studio.addProject({ kind: 'local', ref: dir, include: [bad] }), ValidationError, bad);
+  }
+});
