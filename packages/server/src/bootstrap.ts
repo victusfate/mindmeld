@@ -2,13 +2,17 @@
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { EvidenceStore, loadGrammars, Studio } from '@mindmeld/core';
+import { EvidenceStore, loadGrammars, Studio, type GrammarFiles } from '@mindmeld/core';
 import { connectorsFromEnv } from '@mindmeld/connectors';
 import { startServer, type RunningServer } from './app.ts';
 
 export const DEFAULT_WEB_DIR = fileURLToPath(new URL('../../web/dist', import.meta.url));
 
-export interface LaunchOptions { env?: NodeJS.ProcessEnv; dataDir?: string; port?: number; host?: string; token?: string; webDir?: string }
+export interface LaunchOptions {
+  env?: NodeJS.ProcessEnv; dataDir?: string; port?: number; host?: string; token?: string; webDir?: string;
+  /** Bundled apps (desktop, VS Code) ship the tree-sitter files beside their bundle. */
+  grammarFiles?: GrammarFiles;
+}
 
 const DEFAULT_PORT = 8787;
 export { DEFAULT_PORT };
@@ -19,7 +23,7 @@ export async function launch(o: LaunchOptions = {}): Promise<{ studio: Studio; r
   const env = o.env ?? process.env;
   const dataDir = o.dataDir ?? env.MINDMELD_DATA_DIR ?? join(homedir(), '.mindmeld');
   const connectors = connectorsFromEnv(env, dataDir);
-  const grammars = await loadGrammars();
+  const grammars = await loadGrammars(o.grammarFiles);
   const studio = new Studio({ store: new EvidenceStore(join(dataDir, 'evidence.db')), ...connectors, runDir: env.MINDMELD_RUN_DIR, grammars });
   const running = await startServer({
     studio, host: o.host ?? env.MINDMELD_HOST, port: o.port ?? envPort(env),

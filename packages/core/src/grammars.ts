@@ -22,11 +22,19 @@ export interface Grammars {
   withTree<T>(language: GrammarLanguage, source: string, read: (root: Node) => T): T;
 }
 
+/** Where a bundled app keeps the files that normally sit in node_modules and core/grammars. */
+export interface GrammarFiles {
+  /** Directory holding the grammar .wasm files and manifest.json; defaults to core's vendored copy. */
+  dir?: string;
+  /** web-tree-sitter's runtime .wasm; defaults to the copy beside the web-tree-sitter module. */
+  runtimeWasm?: string;
+}
+
 let runtimeReady: Promise<void> | null = null;
 
-/** `runtimeWasm` locates web-tree-sitter's own .wasm when the code is bundled away from node_modules. */
-export async function loadGrammars(dir: string = GRAMMAR_DIR, runtimeWasm?: string): Promise<Grammars> {
-  runtimeReady ??= Parser.init(runtimeWasm ? { locateFile: () => runtimeWasm } : undefined);
+export async function loadGrammars({ dir = GRAMMAR_DIR, runtimeWasm }: GrammarFiles = {}): Promise<Grammars> {
+  // The runtime is process-wide, so the first caller's runtime file wins.
+  runtimeReady ??= Parser.init(runtimeWasm ? { wasmBinary: readFileSync(runtimeWasm) } : undefined);
   await runtimeReady;
   const manifest = JSON.parse(readFileSync(join(dir, 'manifest.json'), 'utf8')) as ManifestEntry[];
   const parsers = new Map<GrammarLanguage, Parser>();

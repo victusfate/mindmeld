@@ -9,7 +9,8 @@
 // sandboxed, isolated and confined to the server's origin.
 import { app, BrowserWindow, Menu, session, shell, type WebContents } from 'electron';
 import { randomBytes } from 'node:crypto';
-import { delimiter, join } from 'node:path';
+import { delimiter, dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { launch } from '@mindmeld/server';
 import { menuActions } from './actions.ts';
 import { menuTemplate } from './menu.ts';
@@ -25,6 +26,10 @@ type Backend = Awaited<ReturnType<typeof launch>>;
 let backend: Backend | null = null;
 let mainWindow: BrowserWindow | null = null;
 let shuttingDown = false;
+
+/** build.ts copies the tree-sitter files beside the bundle (inside the asar in packaged builds). */
+const bundleDir = dirname(fileURLToPath(import.meta.url));
+const GRAMMAR_FILES = { dir: join(bundleDir, 'grammars'), runtimeWasm: join(bundleDir, 'web-tree-sitter.wasm') };
 
 /** Packaged builds ship the web UI under resources/web; dev builds use the server's default (packages/web/dist). */
 function webDir(): string | undefined {
@@ -66,7 +71,7 @@ async function start(): Promise<void> {
   await adoptLoginPath();
   const token = randomBytes(TOKEN_BYTES).toString('base64url');
   const dataDir = join(app.getPath('userData'), 'studio');
-  backend = await launch({ env: process.env, dataDir, host: '127.0.0.1', port: 0, token, webDir: webDir() });
+  backend = await launch({ env: process.env, dataDir, host: '127.0.0.1', port: 0, token, webDir: webDir(), grammarFiles: GRAMMAR_FILES });
   for (const note of backend.notes) console.log(`note: ${note}`);
   const { studio, running } = backend;
   lockDown(serverOrigin(running.url));

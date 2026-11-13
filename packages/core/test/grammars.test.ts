@@ -22,5 +22,5 @@ test('a grammar file that does not match its manifest checksum is refused', asyn
   const dir = mkdtempSync(join(tmpdir(), 'mm-grammars-'));
   cpSync(GRAMMAR_DIR, dir, { recursive: true });
   writeFileSync(join(dir, 'tree-sitter-python.wasm'), 'tampered');
-  await assert.rejects(loadGrammars(dir), /tree-sitter-python\.wasm.*checksum/);
+  await assert.rejects(loadGrammars({ dir }), /tree-sitter-python\.wasm.*checksum/);
 });
