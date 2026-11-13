@@ -16,6 +16,7 @@ test('launch wires store, connectors and server from the environment', async () 
     const status = await studio.status();
     assert.equal(status.sandbox.available, false);
     assert.equal(status.model.available, false);
+    assert.match(status.indexer, /rust\/.* python\/.* gdscript\//, 'backend indexes the tree-sitter languages');
     const res = await fetch(`${running.url}/api/health`);
     assert.equal(res.status, 200);
   } finally { await running.close(); }

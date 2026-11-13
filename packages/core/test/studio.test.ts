@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { appendFileSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { EvidenceStore, Studio, SandboxUnavailableError, ValidationError, type SourceConnector } from '../src/index.ts';
+import { EvidenceStore, loadGrammars, Studio, SandboxUnavailableError, ValidationError, type SourceConnector } from '../src/index.ts';
 import { copyFixture, HostProcessSandbox } from './helpers.ts';
 
 const local: SourceConnector = { kind: 'local', materialize: root => Promise.resolve({ root, name: 'fixture' }) };
@@ -163,4 +163,19 @@ test('an import scope limits the project to its directories, survives refresh an
   for (const bad of ['../etc', '/etc', 'src/../..', '']) {
     await assert.rejects(studio.addProject({ kind: 'local', ref: dir, include: [bad] }), ValidationError, bad);
   }
+});
+
+test('loading grammars re-indexes an unchanged repository instead of reusing the old snapshot', async () => {
+  const dir = copyFixture();
+  writeFileSync(join(dir, 'tool.py'), 'def run():\n    pass\n');
+  const store = new EvidenceStore(':memory:');
+  const before = new Studio({ store, sandbox: new HostProcessSandbox(), model: null, sources: [local] });
+  const { project, snapshot } = await before.addProject({ kind: 'local', ref: dir });
+  assert.ok(!before.graph(project.id).symbols.some(s => s.id === 'tool.py#run'));
+  const after = new Studio({ store, sandbox: new HostProcessSandbox(), model: null, sources: [local], grammars: await loadGrammars() });
+  const reindexed = after.refresh(project.id);
+  assert.notEqual(reindexed.id, snapshot.id);
+  assert.match(reindexed.indexerVersion, /python\//);
+  assert.ok(after.graph(project.id).symbols.some(s => s.id === 'tool.py#run'));
+  assert.equal(after.refresh(project.id).id, reindexed.id, 'same source and indexer reuse the snapshot');
 });
