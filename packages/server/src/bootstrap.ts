@@ -1,4 +1,5 @@
 // Shared start-up used by the CLI, the container image and the desktop app.
+import { randomBytes } from 'node:crypto';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -33,12 +34,16 @@ export async function launch(o: LaunchOptions = {}): Promise<{ studio: Studio; r
   return { studio, running, notes: connectors.notes };
 }
 
+const LOCAL_TOKEN_BYTES = 32;
+
 export interface LocalBackend { studio: Studio; url: string; token: string; notes: string[]; close(): Promise<void> }
 
 /** The backend a desktop app or editor runs for itself: loopback only, a random port and a fresh token, so it never
  * collides with a shared server on the default port. `close()` stops the HTTP server, then releases the store. */
 export async function launchLocal(o: Omit<LaunchOptions, 'host' | 'port' | 'token'>): Promise<LocalBackend> {
-  const { studio, running, notes } = await launch({ ...o, host: '127.0.0.1', port: 0 });
+  // Generated here, not left to launch(): it would fall back to MINDMELD_TOKEN, the shared server's token.
+  const token = randomBytes(LOCAL_TOKEN_BYTES).toString('base64url');
+  const { studio, running, notes } = await launch({ ...o, host: '127.0.0.1', port: 0, token });
   return {
     studio, url: running.url, token: running.token, notes,
     close: async () => { try { await running.close(); } finally { studio.store.close(); } },

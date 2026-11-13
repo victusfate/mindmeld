@@ -1,7 +1,8 @@
 // Python adapter: top-level functions and classes, methods one level inside a class, calls, and imports.
 import type { Node } from 'web-tree-sitter';
 import type { SourceFile } from '../schema.ts';
-import { addCalls, toSymbol, underscorePublic, type Extracted, type ImportBinding, type LanguageAdapter, type Receiver, type ResolvedImport } from './adapter.ts';
+import { addCalls, toSymbol, underscorePublic, type Extracted, type ImportBinding, type LanguageAdapter, type Receiver } from './adapter.ts';
+import type { ResolvedImport } from '../resolve.ts';
 
 /** A decorated definition wraps the real one; everything else is returned as is. */
 const unwrap = (node: Node): Node => (node.type === 'decorated_definition' ? node.childForFieldName('definition') ?? node : node);

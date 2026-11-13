@@ -23,8 +23,6 @@ export interface Extracted {
   globalType?: string;
 }
 
-export type { ResolvedImport };
-
 export interface LanguageAdapter {
   readonly language: GrammarLanguage;
   readonly extensions: readonly string[];

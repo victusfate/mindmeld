@@ -35,13 +35,16 @@ test('cli --usage prints a shareable report from the data dir', () => {
 
 test('launchLocal: loopback on a random port with a fresh token; close() releases server and store', async () => {
   const dataDir = mkdtempSync(join(tmpdir(), 'mm-local-'));
-  const backend = await launchLocal({ env: { MINDMELD_SANDBOX: 'none', MINDMELD_MODEL_PROVIDER: 'none', MINDMELD_PORT: '8787' }, dataDir });
-  assert.match(backend.url, /^http:\/\/127\.0\.0\.1:\d+$/);
-  assert.notEqual(new URL(backend.url).port, '8787', 'never the shared default port');
-  assert.ok(backend.token.length >= 32);
-  const status = await fetch(`${backend.url}/api/status`, { headers: { authorization: `Bearer ${backend.token}` } });
-  assert.equal(status.status, 200);
-  await backend.close();
+  const shared = { MINDMELD_SANDBOX: 'none', MINDMELD_MODEL_PROVIDER: 'none', MINDMELD_PORT: '8787', MINDMELD_TOKEN: 'shared-server-token-0123456789abcdef' };
+  const backend = await launchLocal({ env: shared, dataDir });
+  try {
+    assert.notEqual(backend.token, shared.MINDMELD_TOKEN, 'never the shared server\'s token');
+    assert.match(backend.url, /^http:\/\/127\.0\.0\.1:\d+$/);
+    assert.notEqual(new URL(backend.url).port, '8787', 'never the shared default port');
+    assert.ok(backend.token.length >= 32);
+    const status = await fetch(`${backend.url}/api/status`, { headers: { authorization: `Bearer ${backend.token}` } });
+    assert.equal(status.status, 200);
+  } finally { await backend.close(); }
   await assert.rejects(fetch(`${backend.url}/api/health`));
   assert.throws(() => backend.studio.store.listProjects(), 'store is closed');
 });

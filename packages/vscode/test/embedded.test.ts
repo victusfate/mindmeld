@@ -36,10 +36,23 @@ test('the extension embeds its own backend: no Connect, multi-language import, c
   await assert.rejects(fetch(`${baseUrl}/api/health`));
 });
 
+const listeningServers = (): number => process.getActiveResourcesInfo().filter(r => r === 'TCPServerWrap').length;
+const SETTLE_MS = 2000;
+const POLL_MS = 20;
+
+/** A closed server's handle is released a tick after close() resolves, so wait for it, failing after SETTLE_MS. */
+async function settlesTo(count: number): Promise<number> {
+  const deadline = Date.now() + SETTLE_MS;
+  while (listeningServers() !== count && Date.now() < deadline) await new Promise(resolve => setTimeout(resolve, POLL_MS));
+  return listeningServers();
+}
+
 test('deactivating while the backend is still starting shuts that backend down', async () => {
   fake.folder = Uri.file(realpathSync(copyFixture()));
+  const before = listeningServers();
   const api = activate(fakeContext() as never);
   await deactivate();
   await api.ready;
-  assert.ok(api.session.baseUrl === '' || await fetch(`${api.session.baseUrl}/api/health`).then(() => false, () => true), 'no backend left listening');
+  assert.equal(api.session.client, null, 'never connected to a backend that is shutting down');
+  assert.equal(await settlesTo(before), before, 'no backend left listening');
 });
