@@ -1,10 +1,14 @@
 // Static TypeScript/JavaScript index: symbols, file imports and call sites with exact spans.
 // Parses only; never executes code or resolves packages. Every edge is a *possible* call.
 import ts from 'typescript';
+import type { Grammars } from './grammars.ts';
 import { collectSymbols, isCodeFile, parse, spanOf, type FoundSymbol } from './symbols.ts';
+import { indexTreeSources } from './tree-index.ts';
 import type { CodeSymbol, EdgeResolution, SourceFile, StaticEdge } from './schema.ts';
 
-export const INDEXER_VERSION = `ts-index/1 typescript/${ts.version}`;
+const TS_INDEXER = `ts-index/1 typescript/${ts.version}`;
+/** Recorded on every snapshot; a different version means the snapshot must be re-indexed. */
+export const indexerVersion = (grammars?: Grammars): string => (grammars ? `${TS_INDEXER} ${grammars.version}` : TS_INDEXER);
 
 export interface FileImport { from: string; to: string; names: string[] }
 export interface StaticIndex { symbols: CodeSymbol[]; edges: StaticEdge[]; imports: FileImport[] }
@@ -102,7 +106,15 @@ function callEdges(found: FoundSymbol, file: FileCtx, project: Project): StaticE
   return edges;
 }
 
-export function indexSources(files: SourceFile[], contents: Map<string, string>): StaticIndex {
+/** TS/JS through the TypeScript compiler; Rust, Python and GDScript through tree-sitter when grammars are loaded. */
+export function indexSources(files: SourceFile[], contents: Map<string, string>, grammars?: Grammars): StaticIndex {
+  const scripts = indexTypeScript(files, contents);
+  if (!grammars) return scripts;
+  const tree = indexTreeSources(files, contents, grammars);
+  return { symbols: [...scripts.symbols, ...tree.symbols], edges: [...scripts.edges, ...tree.edges], imports: [...scripts.imports, ...tree.imports] };
+}
+
+function indexTypeScript(files: SourceFile[], contents: Map<string, string>): StaticIndex {
   const codeFiles = files.filter(f => isCodeFile(f.path));
   const fileSet = new Set(codeFiles.map(f => f.path));
   const parsed = codeFiles.map(f => {

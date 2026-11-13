@@ -3,7 +3,8 @@ import { sealBundle, validateBundle, type EvidenceBundle } from './bundle.ts';
 import { resolveCitation, type CitationContext } from './citations.ts';
 import { diffRuns, type RunDiff } from './diff.ts';
 import { DEFAULT_LIMITS, importRepository, isSafeRelativePath, type ImportedRepo } from './import.ts';
-import { indexSources, INDEXER_VERSION, type FileImport } from './indexer.ts';
+import { indexerVersion, indexSources, type FileImport } from './indexer.ts';
+import type { Grammars } from './grammars.ts';
 import { askQuestion, ModelUnavailableError, type ModelConnector, type ModelStatus } from './qa.ts';
 import { newId } from './hash.ts';
 import { executeRun, type SandboxConnector, type SandboxStatus } from './runner.ts';
@@ -18,7 +19,11 @@ export interface SourceConnector {
   materialize(ref: string): Promise<{ root: string; name: string }>;
 }
 
-export interface StudioOptions { store: EvidenceStore; sandbox: SandboxConnector; model: ModelConnector | null; sources: SourceConnector[]; runDir?: string }
+export interface StudioOptions {
+  store: EvidenceStore; sandbox: SandboxConnector; model: ModelConnector | null; sources: SourceConnector[]; runDir?: string;
+  /** Loaded tree-sitter grammars; without them only TS/JS files yield symbols. */
+  grammars?: Grammars;
+}
 export interface Graph {
   project: Project;
   snapshot: RepoSnapshot;
@@ -45,7 +50,7 @@ export class Studio {
     return {
       sandbox: { name: this.opts.sandbox.name, ...(await this.opts.sandbox.status()) },
       model: model ? { name: model.name, ...(await model.status()) } : { name: null, available: false, reason: 'no model configured (optional)', model: null },
-      indexer: INDEXER_VERSION,
+      indexer: indexerVersion(this.opts.grammars),
     };
   }
 
@@ -61,10 +66,11 @@ export class Studio {
 
   private indexRepo(project: Project, repo: ImportedRepo): RepoSnapshot {
     const latest = this.store.latestSnapshot(project.id);
-    if (latest && latest.snapshotHash === repo.snapshotHash) return latest;
+    const version = indexerVersion(this.opts.grammars);
+    if (latest && latest.snapshotHash === repo.snapshotHash && latest.indexerVersion === version) return latest;
     const started = performance.now();
-    const snap = this.store.saveSnapshot(project.id, repo, indexSources(repo.files, repo.contents), INDEXER_VERSION);
-    this.record({ kind: 'index', projectId: project.id, provider: INDEXER_VERSION, started, ok: true, detail: `${repo.files.length} files` });
+    const snap = this.store.saveSnapshot(project.id, repo, indexSources(repo.files, repo.contents, this.opts.grammars), version);
+    this.record({ kind: 'index', projectId: project.id, provider: version, started, ok: true, detail: `${repo.files.length} files` });
     return snap;
   }
 
