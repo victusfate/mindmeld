@@ -54,6 +54,7 @@ test('desktop app: login, API via cookie, confinement, menus, clean quit', { ski
     assert.equal(api.status, HTTP_OK);
     assert.equal(api.usage, HTTP_OK);
     assert.equal(api.body.sandbox.name, 'disabled');
+    assert.match(api.body.indexer, /rust\/.* python\/.* gdscript\//, 'the bundled backend loads the tree-sitter grammars');
     assert.equal(api.cookie, '', 'session cookie must be HttpOnly');
 
     // Record main-process side effects instead of opening real dialogs or a real browser.
