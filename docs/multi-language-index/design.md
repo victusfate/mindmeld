@@ -28,6 +28,9 @@
 |---|---|---|---|
 | The existing `CodeSymbol`/`StaticEdge` shape fits Rust, Python and GDScript without breaking API v1 | Map each language's functions/methods/types onto `SymbolKind` | unknown | Add optional fields only; never change existing ones |
 | The web UI does not branch on language | `grep language packages/web/src` | verified: no matches | — |
+| VS Code's extension host provides `node:sqlite` (the store needs it) | Load the bundled backend in the extension host (e2e or a real VS Code run) | unknown | Fall back to D9's external-backend setting as the default and record it |
+| 20,000 files / 150 MB fits memory and import time on a developer machine | Time and measure RSS importing voidhorizon | unknown | Lower the defaults; rely on `include` |
+| The bounded name-match keeps graphs readable | Count voidhorizon edges and the share that are name-match | unknown | Lower the bound or drop name-match for the new languages |
 
 ## Canonical Vocabulary
 | Term | Definition |
@@ -35,6 +38,9 @@
 | Import budget | The file-count and byte limits on one import (`DEFAULT_LIMITS` in `import.ts`). |
 | Code file | A file whose language has a symbol indexer. Data files (JSON, Markdown, text) are kept for citations and Q&A but never indexed for symbols. |
 | Language adapter | The per-language unit that turns one code file into symbols and call sites. |
+| Data file | A JSON, Markdown or text file: imported for citations and Q&A, never indexed for symbols. |
+| Tier | An import-priority class: code files first, data files second. |
+| Import scope | A project's optional `include` list of repo-relative directories; only files under them are imported. |
 | Standalone extension | The VS Code extension starting the Studio backend inside the extension host, as the desktop app does, with no separately started server or pasted login URL. |
 
 ## Decisions
@@ -78,8 +84,8 @@ adapters beside it, behind one dispatch by file extension.
 ### D6: Call-edge resolution for new languages reuses existing resolutions
 **Decision:** `local` (callee defined in the same file), `this-member` (`self.x()` to a method of the
 enclosing type), `import` (Python `from m import f` / `import m` resolved to a repo file), `name-match`
-(any other call whose name matches symbols elsewhere). A name-match fans out to at most a small fixed number
-of targets; a common name above that bound produces no edge.
+(any other call whose name matches symbols elsewhere). A name-match fans out to at most 3 targets
+(`NAME_MATCH_LIMIT`); a name with more candidates produces no edge.
 **Rationale:** Same evidence vocabulary as TS; the UI already shows name-match as the weakest kind. Without a
 bound, names like `new`, `get` or `_ready` would connect everything.
 **Alternatives considered:** Rust `use`-path and GDScript `preload`/`class_name` resolution — deferred.
@@ -105,7 +111,8 @@ additive, so API v1 clients are unaffected. *Owner away when decided — assumpt
 ### D9: Standalone VS Code extension embeds the backend
 **Decision:** By default the extension starts the Studio backend in its extension host (127.0.0.1, random
 port, fresh token, data in the extension's global storage) and connects to it, as the desktop app does.
-A setting switches to an external backend, keeping today's Connect flow. The .vsix bundles the backend, the
+The setting `mindmeld.backend: "embedded" | "external"` (default `embedded`) switches to an external
+backend, keeping today's Connect flow. The .vsix bundles the backend, the
 web UI and the grammar files.
 **Rationale:** Owner direction (D2). In a WSL window the extension host runs on Linux, so workspace paths
 are readable by the embedded backend.
