@@ -1,6 +1,7 @@
 export * from './schema.ts';
 export * from './hash.ts';
 export * from './import.ts';
+export * from './grammars.ts';
 export * from './indexer.ts';
 export * from './instrument.ts';
 export * from './redact.ts';
