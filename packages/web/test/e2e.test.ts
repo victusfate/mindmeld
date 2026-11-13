@@ -123,10 +123,16 @@ test('studio UI: import, map, allowlist, run, replay, compare, ask, usage, avail
 test('large project: the map opens on one file and choosing another file brings its symbols into view', { skip: pw ? false : 'playwright not installed' }, async () => {
   const webDir = await build(mkdtempSync(join(tmpdir(), 'mm-web-dist-')));
   const repo = mkdtempSync(join(tmpdir(), 'mm-large-'));
-  const FILES = 40, PER_FILE = 40;   // 1,600 symbols: above the large-map threshold
+  // 40 files × 40 symbols = 1,600 (above the large-map threshold). A cross-file call chain puts each file's `chain`
+  // one layer deeper than the previous file's, while its other 39 functions stay in the first layer: like a real
+  // repo, one file's symbols end up far apart in a whole-repo layout.
+  const FILES = 40, PER_FILE = 39;
+  const name = (f: number): string => `m${String(f).padStart(2, '0')}`;
   for (let f = 0; f < FILES; f++) {
-    const body = Array.from({ length: PER_FILE }, (_, i) => `export function f${f}_${i}(): number { return ${i}; }`).join('\n');
-    writeFileSync(join(repo, `m${String(f).padStart(2, '0')}.ts`), `${body}\n`);
+    const plain = Array.from({ length: PER_FILE }, (_, i) => `export function f${f}_${i}(): number { return ${i}; }`).join('\n');
+    const chain = f === 0 ? 'export function chain0(): number { return 0; }'
+      : `import { chain${f - 1} } from './${name(f - 1)}.ts';\nexport function chain${f}(): number { return chain${f - 1}(); }`;
+    writeFileSync(join(repo, `${name(f)}.ts`), `${chain}\n${plain}\n`);
   }
   const studio = new Studio({ store: new EvidenceStore(':memory:'), sandbox: new HostProcessSandbox(), model: null, sources: [new LocalDirectorySource()] });
   await studio.addProject({ kind: 'local', ref: repo });
@@ -138,5 +144,10 @@ test('large project: the map opens on one file and choosing another file brings 
   await page.locator('[data-symbol="m00.ts#f0_0"]').waitFor(WAIT);
   assert.equal(await page.locator('[data-symbol^="m01.ts#"]').count(), 0, 'only the first file is drawn');
   await page.getByLabel('File').selectOption('m39.ts');
-  await page.locator('[data-symbol="m39.ts#f39_0"]').waitFor(WAIT);
+  const node = page.locator('[data-symbol="m39.ts#f39_0"]');
+  await node.waitFor(WAIT);
+  const box = (await node.boundingBox())!;
+  const canvas = (await page.locator('.map-canvas').boundingBox())!;
+  const overlaps = box.x < canvas.x + canvas.width && box.x + box.width > canvas.x && box.y < canvas.y + canvas.height && box.y + box.height > canvas.y;
+  assert.ok(overlaps, `the chosen file's symbols are on screen (node ${JSON.stringify(box)}, canvas ${JSON.stringify(canvas)})`);
 });

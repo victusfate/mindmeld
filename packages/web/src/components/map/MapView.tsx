@@ -54,9 +54,11 @@ export function MapView({ graph, entries, selected, current, path, onSelect }: P
   const [query, setQuery] = useState('');
   const q = query.trim().toLowerCase();
   const [sizes, onNodesChange] = useMeasured();
-  const positions = useMemo(() => layoutSymbols(graph.symbols, [...graph.staticEdges.filter(e => e.kind === 'call'), ...graph.observedEdges]), [graph]);
-  const slots = useMemo(() => fileSlots(graph.symbols, FILE_SLOTS), [graph]);
   const visibleSymbols = useMemo(() => graph.symbols.filter(s => !file || s.span.file === file), [graph, file]);
+  // Laid out from the shown symbols only: one file's symbols placed by a whole-repo layout can sit too far apart
+  // to fit on screen at the minimum zoom (seen on a 42k-symbol project).
+  const positions = useMemo(() => layoutSymbols(visibleSymbols, [...graph.staticEdges.filter(e => e.kind === 'call'), ...graph.observedEdges]), [graph, visibleSymbols]);
+  const slots = useMemo(() => fileSlots(graph.symbols, FILE_SLOTS), [graph]);
   const visible = useMemo(() => new Set(visibleSymbols.map(s => s.id)), [visibleSymbols]);
   const entryIds = useMemo(() => new Set(entries.map(e => e.symbolId)), [entries]);
   const onPathNodes = useMemo(() => new Set([...path].flatMap(k => k.split('→'))), [path]);
@@ -86,9 +88,8 @@ export function MapView({ graph, entries, selected, current, path, onSelect }: P
           onKeyDown={e => { if (e.key === 'Enter' && firstMatch) onSelect(firstMatch.id); }} />
       </div>
       <div className="map-canvas">
-        {/* Keyed by file too: fitView only runs on mount, and a file's symbols can lie outside the last view. */}
+        {/* Keyed by file too: fitView only runs on mount, so a new file selection needs a fresh fit. */}
         <ReactFlow key={`${graph.project.id}:${file}`} nodes={nodes} edges={edges} onNodesChange={onNodesChange} nodeTypes={NODE_TYPES} fitView minZoom={MIN_ZOOM}
-          onlyRenderVisibleElements
           nodesConnectable={false} edgesFocusable={false} elementsSelectable={false} proOptions={{ hideAttribution: true }}>
           <Background gap={GRID_GAP} size={1} />
           <Controls showInteractive={false} />
