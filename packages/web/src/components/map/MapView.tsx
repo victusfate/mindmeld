@@ -86,7 +86,8 @@ export function MapView({ graph, entries, selected, current, path, onSelect }: P
           onKeyDown={e => { if (e.key === 'Enter' && firstMatch) onSelect(firstMatch.id); }} />
       </div>
       <div className="map-canvas">
-        <ReactFlow key={graph.project.id} nodes={nodes} edges={edges} onNodesChange={onNodesChange} nodeTypes={NODE_TYPES} fitView minZoom={MIN_ZOOM}
+        {/* Keyed by file too: fitView only runs on mount, and a file's symbols can lie outside the last view. */}
+        <ReactFlow key={`${graph.project.id}:${file}`} nodes={nodes} edges={edges} onNodesChange={onNodesChange} nodeTypes={NODE_TYPES} fitView minZoom={MIN_ZOOM}
           onlyRenderVisibleElements
           nodesConnectable={false} edgesFocusable={false} elementsSelectable={false} proOptions={{ hideAttribution: true }}>
           <Background gap={GRID_GAP} size={1} />
