@@ -179,3 +179,12 @@ test('loading grammars re-indexes an unchanged repository instead of reusing the
   assert.ok(after.graph(project.id).symbols.some(s => s.id === 'tool.py#run'));
   assert.equal(after.refresh(project.id).id, reindexed.id, 'same source and indexer reuse the snapshot');
 });
+
+test('only TS/JS functions can be allowlisted for runs', async () => {
+  const dir = copyFixture();
+  writeFileSync(join(dir, 'tool.py'), 'def run():\n    pass\n');
+  const studio = new Studio({ store: new EvidenceStore(':memory:'), sandbox: new HostProcessSandbox(), model: null, sources: [local], grammars: await loadGrammars() });
+  const { project } = await studio.addProject({ kind: 'local', ref: dir });
+  assert.throws(() => studio.addEntry(project.id, 'tool.py#run'), (e: Error) => e instanceof ValidationError && /python/.test(e.message));
+  assert.ok(studio.addEntry(project.id, 'src/game.ts#playTurn'));
+});
