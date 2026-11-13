@@ -4,7 +4,7 @@ import { useCallback, useMemo, useState } from 'react';
 import { Background, Controls, MarkerType, ReactFlow, type Edge, type NodeChange } from '@xyflow/react';
 import type { Entry, Graph } from '@mindmeld/client';
 import { mapEdges, type EdgeMode, type MapEdge } from '../../lib/edges.ts';
-import { fileSlots, layoutSymbols } from '../../lib/layout.ts';
+import { fileSlots, initialFile, layoutSymbols } from '../../lib/layout.ts';
 import { SymbolNode, type SymbolNodeType } from './SymbolNode.tsx';
 import { Legend } from './Legend.tsx';
 
@@ -49,11 +49,11 @@ const matches = (q: string, name: string, id: string): boolean => !q || name.toL
 
 export function MapView({ graph, entries, selected, current, path, onSelect }: Props) {
   const [mode, setMode] = useState<EdgeMode>('both');
-  const [file, setFile] = useState('');
+  const files = useMemo(() => [...new Set(graph.symbols.map(s => s.span.file))].sort(), [graph]);
+  const [file, setFile] = useState(() => initialFile(files, graph.symbols.length));
   const [query, setQuery] = useState('');
   const q = query.trim().toLowerCase();
   const [sizes, onNodesChange] = useMeasured();
-  const files = useMemo(() => [...new Set(graph.symbols.map(s => s.span.file))].sort(), [graph]);
   const positions = useMemo(() => layoutSymbols(graph.symbols, [...graph.staticEdges.filter(e => e.kind === 'call'), ...graph.observedEdges]), [graph]);
   const slots = useMemo(() => fileSlots(graph.symbols, FILE_SLOTS), [graph]);
   const visibleSymbols = useMemo(() => graph.symbols.filter(s => !file || s.span.file === file), [graph, file]);
@@ -79,7 +79,7 @@ export function MapView({ graph, entries, selected, current, path, onSelect }: P
         </label>
         <label>File
           <select value={file} onChange={e => setFile(e.target.value)}>
-            <option value="">all files</option>{files.map(f => <option key={f} value={f}>{f}</option>)}
+            <option value="">all files ({graph.symbols.length} symbols)</option>{files.map(f => <option key={f} value={f}>{f}</option>)}
           </select>
         </label>
         <input type="search" placeholder="Search symbols (Enter opens)" aria-label="Search symbols" value={query} onChange={e => setQuery(e.target.value)}
@@ -87,6 +87,7 @@ export function MapView({ graph, entries, selected, current, path, onSelect }: P
       </div>
       <div className="map-canvas">
         <ReactFlow key={graph.project.id} nodes={nodes} edges={edges} onNodesChange={onNodesChange} nodeTypes={NODE_TYPES} fitView minZoom={MIN_ZOOM}
+          onlyRenderVisibleElements
           nodesConnectable={false} edgesFocusable={false} elementsSelectable={false} proOptions={{ hideAttribution: true }}>
           <Background gap={GRID_GAP} size={1} />
           <Controls showInteractive={false} />

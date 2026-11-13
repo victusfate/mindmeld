@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { Answer, CodeSymbol, ObservedEdge, ResolvedCitation, RunDiff, StaticEdge, TraceEvent } from '../../client/src/index.ts';
-import { fileSlots, layers, layoutSymbols, ROW_HEIGHT } from '../src/lib/layout.ts';
+import { fileSlots, initialFile, layers, layoutSymbols, ROW_HEIGHT, LARGE_MAP } from '../src/lib/layout.ts';
 import { mapEdges, edgeKey } from '../src/lib/edges.ts';
 import { callStack, clampStep, pathUpTo } from '../src/lib/replay.ts';
 import { checkInputs, inputTemplate } from '../src/lib/inputs.ts';
@@ -122,4 +122,10 @@ test('formatters', () => {
   assert.equal(shortHash('abcdef0123456789'), 'abcdef0123');
   assert.equal(pretty('{"a":1}'), '{\n  "a": 1\n}');
   assert.equal(pretty('not json'), 'not json');
+});
+
+test('a large project opens the map on its first file; a small one shows everything', () => {
+  assert.equal(initialFile(['b.rs', 'a.py'], LARGE_MAP), '');
+  assert.equal(initialFile(['a.py', 'b.rs'], LARGE_MAP + 1), 'a.py');
+  assert.equal(initialFile([], LARGE_MAP + 1), '');
 });
