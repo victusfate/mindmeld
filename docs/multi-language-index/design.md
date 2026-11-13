@@ -28,7 +28,7 @@
 |---|---|---|---|
 | The existing `CodeSymbol`/`StaticEdge` shape fits Rust, Python and GDScript without breaking API v1 | Map each language's functions/methods/types onto `SymbolKind` | unknown | Add optional fields only; never change existing ones |
 | The web UI does not branch on language | `grep language packages/web/src` | verified: no matches | — |
-| VS Code's extension host provides `node:sqlite` (the store needs it) | Load the bundled backend in the extension host (e2e or a real VS Code run) | unknown | Fall back to D9's external-backend setting as the default and record it |
+| VS Code's extension host provides `node:sqlite` (the store needs it) | Load the bundled backend in the extension host (e2e or a real VS Code run) | verified 2026-11-13: VS Code 1.146 extension host (Electron 43.8.6, Node v24.22.1) and the WSL VS Code server's Node v24.22.1 both open an in-memory `DatabaseSync` | Fall back to D9's external-backend setting as the default and record it |
 | 20,000 files / 150 MB fits memory and import time on a developer machine | Time and measure RSS importing voidhorizon | unknown | Lower the defaults; rely on `include` |
 | The bounded name-match keeps graphs readable | Count voidhorizon edges and the share that are name-match | unknown | Lower the bound or drop name-match for the new languages |
 
