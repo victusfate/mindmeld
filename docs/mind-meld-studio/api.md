@@ -23,7 +23,7 @@ Types: `packages/core/src/schema.ts`, `usage.ts`, `diff.ts`. Typed client: `pack
 | `GET /auth?token=` | — | 303 + session cookie |
 | `GET /api/status` | — | `{ apiVersion, indexer, sandbox{name,available,reason,runtime}, model{name,available,reason,model} }` |
 | `GET /api/projects` | — | `Project[]` |
-| `POST /api/projects` | `{ kind: 'local'\|'git', ref, name? }` | `{ project, snapshot }` |
+| `POST /api/projects` | `{ kind: 'local'\|'git', ref, name?, include?: string[] }` (`include`: repo-relative directories to import) | `{ project, snapshot }` |
 | `GET /api/projects/:id` | — | `{ project, snapshot }` |
 | `POST /api/projects/:id/refresh` | — | `RepoSnapshot` (new one if source changed → older runs become stale) |
 | `GET /api/projects/:id/graph` | — | `{ project, snapshot, symbols, staticEdges, observedEdges, imports, staleRuns }` |

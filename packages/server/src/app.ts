@@ -77,6 +77,12 @@ function str(body: unknown, key: string): string {
   if (typeof v !== 'string' || !v) throw new HttpError(HTTP.badRequest, `${key} is required`);
   return v;
 }
+function stringList(body: unknown, key: string): string[] | undefined {
+  const v = field(body, key);
+  if (v === undefined) return undefined;
+  if (!Array.isArray(v) || !v.every(item => typeof item === 'string')) throw new HttpError(HTTP.badRequest, `${key} must be an array of strings`);
+  return v;
+}
 
 function routes(studio: Studio): Route[] {
   return [
@@ -84,7 +90,10 @@ function routes(studio: Studio): Route[] {
     route('GET', '/api/projects', () => studio.store.listProjects()),
     route('POST', '/api/projects', async ({ body }) => {
       const b = await body();
-      return studio.addProject({ kind: str(b, 'kind'), ref: str(b, 'ref'), name: typeof field(b, 'name') === 'string' ? String(field(b, 'name')) : undefined });
+      return studio.addProject({
+        kind: str(b, 'kind'), ref: str(b, 'ref'), name: typeof field(b, 'name') === 'string' ? String(field(b, 'name')) : undefined,
+        include: stringList(b, 'include'),
+      });
     }),
     route('GET', '/api/projects/:id', ({ params }) => ({ project: studio.store.getProject(params.id), snapshot: studio.snapshot(params.id) })),
     route('POST', '/api/projects/:id/refresh', ({ params }) => studio.refresh(params.id)),

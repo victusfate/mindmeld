@@ -2,7 +2,7 @@
 import { sealBundle, validateBundle, type EvidenceBundle } from './bundle.ts';
 import { resolveCitation, type CitationContext } from './citations.ts';
 import { diffRuns, type RunDiff } from './diff.ts';
-import { importRepository, type ImportedRepo } from './import.ts';
+import { DEFAULT_LIMITS, importRepository, isSafeRelativePath, type ImportedRepo } from './import.ts';
 import { indexSources, INDEXER_VERSION, type FileImport } from './indexer.ts';
 import { askQuestion, ModelUnavailableError, type ModelConnector, type ModelStatus } from './qa.ts';
 import { newId } from './hash.ts';
@@ -11,7 +11,7 @@ import { NotFoundError, type EvidenceStore, type Project } from './store.ts';
 import { summarizeUsage, UNKNOWN_USAGE, type ModelUsage, type ProviderLimit, type UsageKind, type UsageRecord, type UsageSummary } from './usage.ts';
 import type { Answer, CodeSymbol, Entry, ObservedEdge, RepoSnapshot, ResolvedCitation, Run, StaticEdge, TraceEvent } from './schema.ts';
 
-export interface SourceRef { kind: string; ref: string; name?: string }
+export interface SourceRef { kind: string; ref: string; name?: string; include?: string[] }
 /** Implemented by @mindmeld/connectors: turns a reference into a local, read-only directory. Never executes repo code. */
 export interface SourceConnector {
   readonly kind: string;
@@ -52,9 +52,11 @@ export class Studio {
   async addProject(source: SourceRef): Promise<{ project: Project; snapshot: RepoSnapshot }> {
     const connector = this.opts.sources.find(s => s.kind === source.kind);
     if (!connector) throw new ValidationError(`unknown source kind ${source.kind}`);
+    const include = source.include?.length ? source.include : undefined;
+    if (include?.some(dir => !isSafeRelativePath(dir))) throw new ValidationError('include entries must be repo-relative directories');
     const { root, name } = await connector.materialize(source.ref);
-    const project = this.store.createProject({ name: source.name || name, sourceKind: source.kind, sourceRef: source.ref, root });
-    return { project, snapshot: this.indexRepo(project, importRepository(root)) };
+    const project = this.store.createProject({ name: source.name || name, sourceKind: source.kind, sourceRef: source.ref, root, include });
+    return { project, snapshot: this.indexRepo(project, importRepository(root, DEFAULT_LIMITS, include)) };
   }
 
   private indexRepo(project: Project, repo: ImportedRepo): RepoSnapshot {
@@ -81,7 +83,7 @@ export class Studio {
   refresh(projectId: string): RepoSnapshot {
     const project = this.store.getProject(projectId);
     if (project.sourceKind === 'bundle') return this.snapshot(projectId);
-    return this.indexRepo(project, importRepository(project.root));
+    return this.indexRepo(project, importRepository(project.root, DEFAULT_LIMITS, project.include));
   }
 
   snapshot(projectId: string): RepoSnapshot {

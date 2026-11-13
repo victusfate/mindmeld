@@ -1,6 +1,6 @@
 // Safe repository import: read-only walk that never follows symlinks, never executes anything,
 // bounds file count and bytes, and hashes every file it keeps.
-import { lstatSync, readdirSync, readFileSync, realpathSync } from 'node:fs';
+import { lstatSync, readdirSync, readFileSync, realpathSync, type Dirent } from 'node:fs';
 import { extname, join, relative, sep } from 'node:path';
 import { sha256, snapshotHashOf } from './hash.ts';
 import type { Language, SkippedFile, SourceFile } from './schema.ts';
@@ -51,25 +51,37 @@ export function isSafeRelativePath(path: string): boolean {
 }
 
 interface Candidate { full: string; rel: string; size: number; language: Language }
-interface WalkState { root: string; limits: ImportLimits; ignored: (n: string) => boolean; out: ImportedRepo; candidates: Candidate[] }
+interface WalkState {
+  root: string; limits: ImportLimits; ignored: (n: string) => boolean; inScope: (rel: string, isDir: boolean) => boolean;
+  out: ImportedRepo; candidates: Candidate[];
+}
+
+/** An empty scope admits everything; otherwise a directory is walked only on the way to, or inside, a scope entry. */
+function scopeMatcher(include: readonly string[]): (rel: string, isDir: boolean) => boolean {
+  if (!include.length) return () => true;
+  return (rel, isDir) => include.some(dir => rel.startsWith(`${dir}/`) || (isDir && (rel === dir || dir.startsWith(`${rel}/`))));
+}
 
 function visitFile(state: WalkState, full: string, rel: string): void {
   const language = LANGUAGES[extname(rel).toLowerCase()];
   if (language) state.candidates.push({ full, rel, size: lstatSync(full).size, language });
 }
 
+function visitEntry(state: WalkState, entry: Dirent, depth: number): void {
+  const full = join(entry.parentPath, entry.name);
+  const rel = relative(state.root, full).split(sep).join('/');
+  if (entry.isSymbolicLink()) { state.out.skipped.push({ path: rel, reason: 'symlink not followed' }); return; }
+  if (entry.name.startsWith('.') || state.ignored(entry.name)) return;
+  if (!isSafeRelativePath(rel)) { state.out.skipped.push({ path: rel, reason: 'unsafe path' }); return; }
+  if (!state.inScope(rel, entry.isDirectory())) return;
+  if (entry.isDirectory()) { if (!IGNORED_DIRS.has(entry.name)) walk(state, full, depth + 1); }
+  else if (entry.isFile()) visitFile(state, full, rel);
+}
+
 function walk(state: WalkState, dir: string, depth: number): void {
   if (depth > state.limits.maxDepth) { state.out.skipped.push({ path: relative(state.root, dir), reason: 'too deep' }); return; }
   const entries = readdirSync(dir, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name));
-  for (const entry of entries) {
-    const full = join(dir, entry.name);
-    const rel = relative(state.root, full).split(sep).join('/');
-    if (entry.isSymbolicLink()) { state.out.skipped.push({ path: rel, reason: 'symlink not followed' }); continue; }
-    if (entry.name.startsWith('.') || state.ignored(entry.name)) continue;
-    if (!isSafeRelativePath(rel)) { state.out.skipped.push({ path: rel, reason: 'unsafe path' }); continue; }
-    if (entry.isDirectory()) { if (!IGNORED_DIRS.has(entry.name)) walk(state, full, depth + 1); }
-    else if (entry.isFile()) visitFile(state, full, rel);
-  }
+  for (const entry of entries) visitEntry(state, entry, depth);
 }
 
 /** Admits candidates code-first, then path order, until the file or byte budget is spent; reads only what it admits. */
@@ -89,11 +101,12 @@ function admit(state: WalkState): void {
   }
 }
 
-export function importRepository(rootPath: string, limits: ImportLimits = DEFAULT_LIMITS): ImportedRepo {
+/** `include` is the project's import scope: repo-relative directories, already validated with `isSafeRelativePath`. */
+export function importRepository(rootPath: string, limits: ImportLimits = DEFAULT_LIMITS, include: readonly string[] = []): ImportedRepo {
   const root = realpathSync(rootPath);
   if (!lstatSync(root).isDirectory()) throw new Error('repository root must be a directory');
   const out: ImportedRepo = { files: [], contents: new Map(), skipped: [], snapshotHash: '' };
-  const state: WalkState = { root, limits, ignored: gitignoreMatcher(root), out, candidates: [] };
+  const state: WalkState = { root, limits, ignored: gitignoreMatcher(root), inScope: scopeMatcher(include), out, candidates: [] };
   walk(state, root, 0);
   admit(state);
   out.snapshotHash = snapshotHashOf(Object.fromEntries(out.files.map(f => [f.path, f.hash])));
