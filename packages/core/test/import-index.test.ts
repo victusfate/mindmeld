@@ -54,3 +54,19 @@ test('fixture index: exact spans and possible (static) call edges with provenanc
   assert.ok(idx.edges.every(e => e.provenance === 'static'));
   assert.deepEqual(idx.imports.find(i => i.from === 'src/game.ts' && i.to === 'src/combat.ts')?.names, ['attack']);
 });
+
+test('import admits code files before data files when the budget is short', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'mm-tiers-'));
+  mkdirSync(join(dir, 'a-data')); mkdirSync(join(dir, 'z-code'));
+  for (const n of [1, 2, 3]) writeFileSync(join(dir, `a-data/${n}.json`), '{}');
+  writeFileSync(join(dir, 'z-code/sim.rs'), 'fn tick() {}\n');
+  writeFileSync(join(dir, 'z-code/tool.py'), 'def run():\n    pass\n');
+  writeFileSync(join(dir, 'z-code/player.gd'), 'func _ready():\n\tpass\n');
+  writeFileSync(join(dir, 'z-code/app.ts'), 'export const a = 1;\n');
+  const repo = importRepository(dir, { maxFiles: 5, maxFileBytes: 1000, maxTotalBytes: 10_000, maxDepth: 5 });
+  assert.deepEqual(repo.files.map(f => [f.path, f.language]), [
+    ['z-code/app.ts', 'typescript'], ['z-code/player.gd', 'gdscript'], ['z-code/sim.rs', 'rust'], ['z-code/tool.py', 'python'],
+    ['a-data/1.json', 'json'],
+  ]);
+  assert.deepEqual(repo.skipped.map(s => [s.path, s.reason]), [['a-data/2.json', 'file limit reached'], ['a-data/3.json', 'file limit reached']]);
+});
