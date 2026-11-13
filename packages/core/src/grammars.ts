@@ -12,6 +12,9 @@ const RUNTIME = 'web-tree-sitter/0.27.2';
 
 export type GrammarLanguage = 'rust' | 'python' | 'gdscript';
 export const GRAMMAR_DIR = fileURLToPath(new URL('../grammars/', import.meta.url));
+/** Where a bundled app (desktop, VS Code) keeps the tree-sitter files relative to its bundle directory. */
+export const BUNDLED_GRAMMAR_SUBDIR = 'grammars';
+export const BUNDLED_RUNTIME_WASM = 'web-tree-sitter.wasm';
 
 interface ManifestEntry { language: GrammarLanguage; file: string; version: string; sha256: string }
 
@@ -30,11 +33,16 @@ export interface GrammarFiles {
   runtimeWasm?: string;
 }
 
+/** The grammar files beside a bundle that `scripts/grammar-assets.ts` populated. */
+export const bundledGrammarFiles = (bundleDir: string): Required<GrammarFiles> =>
+  ({ dir: join(bundleDir, BUNDLED_GRAMMAR_SUBDIR), runtimeWasm: join(bundleDir, BUNDLED_RUNTIME_WASM) });
+
 let runtimeReady: Promise<void> | null = null;
 
 export async function loadGrammars({ dir = GRAMMAR_DIR, runtimeWasm }: GrammarFiles = {}): Promise<Grammars> {
-  // The runtime is process-wide, so the first caller's runtime file wins.
-  runtimeReady ??= Parser.init(runtimeWasm ? { wasmBinary: readFileSync(runtimeWasm) } : undefined);
+  // The runtime is process-wide, so the first successful caller's runtime file wins; a failed start is retried.
+  runtimeReady ??= Parser.init(runtimeWasm ? { wasmBinary: readFileSync(runtimeWasm) } : undefined)
+    .catch((error: unknown) => { runtimeReady = null; throw error; });
   await runtimeReady;
   const manifest = JSON.parse(readFileSync(join(dir, 'manifest.json'), 'utf8')) as ManifestEntry[];
   const parsers = new Map<GrammarLanguage, Parser>();

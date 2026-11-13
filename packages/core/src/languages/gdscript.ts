@@ -3,9 +3,8 @@
 // `preload` paths are not resolved.
 import type { Node } from 'web-tree-sitter';
 import type { SourceFile } from '../schema.ts';
-import { spanOfNode, toSymbol, type Extracted, type LanguageAdapter, type Receiver } from './adapter.ts';
+import { addCalls, toSymbol, underscorePublic, type Extracted, type LanguageAdapter, type Receiver } from './adapter.ts';
 
-const isPublic = (name: string): boolean => !name.startsWith('_');
 /** By convention class names are capitalized, so `Helper.f()` is a type path while `node.f()` is a member call. */
 const looksLikeType = (name: string): boolean => /^[A-Z]/.test(name);
 
@@ -29,18 +28,15 @@ function addFunction(out: Extracted, file: SourceFile, fn: Node, owner: string |
   const name = fn.childForFieldName('name')?.text ?? '';
   const symbol = toSymbol(file, {
     node: fn, name: owner ? `${owner}.${name}` : name, kind: owner ? 'method' : 'function',
-    exported: isPublic(name), async: false, params: paramNames(fn.childForFieldName('parameters')),
+    exported: underscorePublic(name), async: false, params: paramNames(fn.childForFieldName('parameters')),
   });
   out.symbols.push(symbol);
-  for (const call of fn.childForFieldName('body')?.descendantsOfType(['call', 'attribute_call']) ?? []) {
-    const target = call && receiverOf(call);
-    if (target) out.calls.push({ from: symbol.id, ...target, site: spanOfNode(file.path, call) });
-  }
+  addCalls(out, symbol, fn.childForFieldName('body'), { types: ['call', 'attribute_call'], targetOf: receiverOf });
 }
 
 function addClass(out: Extracted, file: SourceFile, node: Node): void {
   const name = node.childForFieldName('name')?.text ?? '';
-  out.symbols.push(toSymbol(file, { node, name, kind: 'class', exported: isPublic(name), async: false, params: [] }));
+  out.symbols.push(toSymbol(file, { node, name, kind: 'class', exported: underscorePublic(name), async: false, params: [] }));
   const body = node.namedChildren.find(c => c.type === 'class_body');
   for (const member of body?.namedChildren ?? []) if (member.type === 'function_definition') addFunction(out, file, member, name);
 }

@@ -1,9 +1,7 @@
 // Python adapter: top-level functions and classes, methods one level inside a class, calls, and imports.
 import type { Node } from 'web-tree-sitter';
 import type { SourceFile } from '../schema.ts';
-import { callsIn, spanOfNode, toSymbol, type CallSite, type Extracted, type ImportBinding, type LanguageAdapter, type Receiver, type ResolvedImport } from './adapter.ts';
-
-const isPublic = (name: string): boolean => !name.startsWith('_');
+import { addCalls, toSymbol, underscorePublic, type Extracted, type ImportBinding, type LanguageAdapter, type Receiver, type ResolvedImport } from './adapter.ts';
 
 /** A decorated definition wraps the real one; everything else is returned as is. */
 const unwrap = (node: Node): Node => (node.type === 'decorated_definition' ? node.childForFieldName('definition') ?? node : node);
@@ -42,19 +40,16 @@ function bindingsOf(stmt: Node): ImportBinding[] {
 function addFunction(out: Extracted, file: SourceFile, node: Node, owner: string | null): void {
   const name = node.childForFieldName('name')?.text ?? '';
   const symbol = toSymbol(file, {
-    node, name: owner ? `${owner}.${name}` : name, kind: owner ? 'method' : 'function', exported: isPublic(name),
+    node, name: owner ? `${owner}.${name}` : name, kind: owner ? 'method' : 'function', exported: underscorePublic(name),
     async: node.children[0]?.type === 'async', params: paramNames(node.childForFieldName('parameters')),
   });
   out.symbols.push(symbol);
-  for (const call of callsIn(node.childForFieldName('body'), 'call')) {
-    const target = receiverOf(call.childForFieldName('function') ?? call);
-    if (target) out.calls.push({ from: symbol.id, ...target, site: spanOfNode(file.path, call) } satisfies CallSite);
-  }
+  addCalls(out, symbol, node.childForFieldName('body'), { types: ['call'], targetOf: call => receiverOf(call.childForFieldName('function') ?? call) });
 }
 
 function addClass(out: Extracted, file: SourceFile, node: Node): void {
   const name = node.childForFieldName('name')?.text ?? '';
-  out.symbols.push(toSymbol(file, { node, name, kind: 'class', exported: isPublic(name), async: false, params: [] }));
+  out.symbols.push(toSymbol(file, { node, name, kind: 'class', exported: underscorePublic(name), async: false, params: [] }));
   for (const member of (node.childForFieldName('body')?.namedChildren ?? []).map(unwrap)) {
     if (member.type === 'function_definition') addFunction(out, file, member, name);
   }

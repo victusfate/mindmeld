@@ -3,8 +3,8 @@
 // .vsix ships no node_modules. Run: node build.ts [--package]
 import { build } from 'esbuild';
 import { cpSync, existsSync } from 'node:fs';
-import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
+import { copyGrammarAssets } from '../core/scripts/grammar-assets.ts';
 
 const here = fileURLToPath(new URL('.', import.meta.url));
 const webDist = fileURLToPath(new URL('../web/dist', import.meta.url));
@@ -29,8 +29,7 @@ await build({
 });
 
 // The tree-sitter runtime and grammars are WebAssembly read when the backend starts, so they ship beside the bundle.
-cpSync(fileURLToPath(new URL('../core/grammars', import.meta.url)), `${here}dist/grammars`, { recursive: true });
-cpSync(createRequire(import.meta.url).resolve('web-tree-sitter/web-tree-sitter.wasm'), `${here}dist/web-tree-sitter.wasm`);
+copyGrammarAssets(`${here}dist`);
 
 // A packaged .vsix also carries the web UI for "Open Studio in Browser"; build it first (npm run build -w @mindmeld/web).
 if (process.argv.includes('--package')) {

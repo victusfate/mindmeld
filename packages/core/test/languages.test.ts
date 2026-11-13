@@ -165,3 +165,9 @@ test('gdscript: script functions, inner classes, implicit self and class-qualifi
   assert.deepEqual(idx.edges.filter(e => e.from === 'godot/player.gd#Inner.go').map(e => [e.to, e.resolution]),
     [['godot/player.gd#Inner.stop', 'this-member'], ['godot/player.gd#Inner.stop', 'local']]);
 });
+
+test('one symbol id declared twice (two trait impls) yields one symbol and one edge per call', () => {
+  const idx = index({ 'x.rs': 'struct X;\nimpl A for X { fn f(&self) {} }\nimpl B for X { fn f(&self) {} }\nfn main() { X::f(); }\n' });
+  assert.equal(idx.symbols.filter(s => s.id === 'x.rs#X.f').length, 1);
+  assert.equal(idx.edges.filter(e => e.from === 'x.rs#main').length, 1);
+});

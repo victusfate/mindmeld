@@ -3,7 +3,7 @@
 // on `Type::f` or on free functions; method calls on values of unknown type get no edge.
 import type { Node } from 'web-tree-sitter';
 import type { SourceFile } from '../schema.ts';
-import { callsIn, spanOfNode, toSymbol, type Extracted, type LanguageAdapter, type Receiver } from './adapter.ts';
+import { addCalls, toSymbol, type Extracted, type LanguageAdapter, type Receiver } from './adapter.ts';
 
 const TYPE_ITEMS = new Set(['struct_item', 'enum_item', 'trait_item']);
 const isPublic = (node: Node): boolean => node.namedChildren.some(c => c.type === 'visibility_modifier');
@@ -59,10 +59,7 @@ function addFunction(out: Extracted, file: SourceFile, fn: Node, owner: { type: 
     exported: isPublic(fn) || Boolean(owner?.exported), async: isAsync(fn), params: paramNames(fn.childForFieldName('parameters')),
   });
   out.symbols.push(symbol);
-  for (const call of callsIn(fn.childForFieldName('body'), 'call_expression')) {
-    const target = receiverOf(call.childForFieldName('function') ?? call);
-    if (target) out.calls.push({ from: symbol.id, ...target, site: spanOfNode(file.path, call) });
-  }
+  addCalls(out, symbol, fn.childForFieldName('body'), { types: ['call_expression'], targetOf: call => receiverOf(call.childForFieldName('function') ?? call) });
 }
 
 /** Methods of an `impl` (owned by its self type) or a `trait` (exported with the trait). */

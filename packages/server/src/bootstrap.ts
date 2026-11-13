@@ -32,3 +32,15 @@ export async function launch(o: LaunchOptions = {}): Promise<{ studio: Studio; r
   });
   return { studio, running, notes: connectors.notes };
 }
+
+export interface LocalBackend { studio: Studio; url: string; token: string; notes: string[]; close(): Promise<void> }
+
+/** The backend a desktop app or editor runs for itself: loopback only, a random port and a fresh token, so it never
+ * collides with a shared server on the default port. `close()` stops the HTTP server, then releases the store. */
+export async function launchLocal(o: Omit<LaunchOptions, 'host' | 'port' | 'token'>): Promise<LocalBackend> {
+  const { studio, running, notes } = await launch({ ...o, host: '127.0.0.1', port: 0 });
+  return {
+    studio, url: running.url, token: running.token, notes,
+    close: async () => { try { await running.close(); } finally { studio.store.close(); } },
+  };
+}

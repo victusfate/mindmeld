@@ -2,9 +2,8 @@
 // sources directly, so @mindmeld/* and `typescript` (used by core's indexer) are bundled into dist/main.mjs.
 // Only `electron` itself stays external. Run: node build.ts
 import { build } from 'esbuild';
-import { cpSync } from 'node:fs';
-import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
+import { copyGrammarAssets } from '../core/scripts/grammar-assets.ts';
 
 const root = fileURLToPath(new URL('.', import.meta.url));
 /** Electron 44 ships Node 24 (node:sqlite needs ≥ 22.13). */
@@ -38,5 +37,4 @@ await build({
 
 // The tree-sitter runtime and grammars are WebAssembly files read at start-up, so they ship beside the bundle;
 // main.ts passes these paths to launch().
-cpSync(fileURLToPath(new URL('../core/grammars', import.meta.url)), `${root}dist/grammars`, { recursive: true });
-cpSync(createRequire(import.meta.url).resolve('web-tree-sitter/web-tree-sitter.wasm'), `${root}dist/web-tree-sitter.wasm`);
+copyGrammarAssets(`${root}dist`);

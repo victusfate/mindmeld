@@ -1,5 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
 import { cpSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { readFileSync } from 'node:fs';
@@ -23,4 +24,16 @@ test('a grammar file that does not match its manifest checksum is refused', asyn
   cpSync(GRAMMAR_DIR, dir, { recursive: true });
   writeFileSync(join(dir, 'tree-sitter-python.wasm'), 'tampered');
   await assert.rejects(loadGrammars({ dir }), /tree-sitter-python\.wasm.*checksum/);
+});
+
+test('a failed runtime start is not cached: a later load with good files succeeds', () => {
+  // A fresh process, because the web-tree-sitter runtime is process-wide and earlier tests already started it.
+  const junk = join(mkdtempSync(join(tmpdir(), 'mm-runtime-')), 'web-tree-sitter.wasm');
+  writeFileSync(junk, 'not wasm');
+  const grammarsModule = new URL('../src/grammars.ts', import.meta.url).href;
+  const script = `const { loadGrammars } = await import(${JSON.stringify(grammarsModule)});
+    const failed = await loadGrammars({ runtimeWasm: ${JSON.stringify(junk)} }).then(() => false, () => true);
+    console.log(failed, (await loadGrammars()).version.includes('python/'));`;
+  const child = spawnSync(process.execPath, ['--input-type=module', '-e', script], { encoding: 'utf8' });
+  assert.equal(child.stdout.trim(), 'true true', child.stderr);
 });

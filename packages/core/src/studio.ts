@@ -2,7 +2,7 @@
 import { sealBundle, validateBundle, type EvidenceBundle } from './bundle.ts';
 import { resolveCitation, type CitationContext } from './citations.ts';
 import { diffRuns, type RunDiff } from './diff.ts';
-import { DEFAULT_LIMITS, importRepository, isSafeRelativePath, type ImportedRepo } from './import.ts';
+import { importRepository, isSafeRelativePath, type ImportedRepo } from './import.ts';
 import { indexerVersion, indexSources, type FileImport } from './indexer.ts';
 import type { Grammars } from './grammars.ts';
 import { askQuestion, ModelUnavailableError, type ModelConnector, type ModelStatus } from './qa.ts';
@@ -61,7 +61,7 @@ export class Studio {
     if (include?.some(dir => !isSafeRelativePath(dir))) throw new ValidationError('include entries must be repo-relative directories');
     const { root, name } = await connector.materialize(source.ref);
     const project = this.store.createProject({ name: source.name || name, sourceKind: source.kind, sourceRef: source.ref, root, include });
-    return { project, snapshot: this.indexRepo(project, importRepository(root, DEFAULT_LIMITS, include)) };
+    return { project, snapshot: this.indexRepo(project, importRepository(root, { include })) };
   }
 
   private indexRepo(project: Project, repo: ImportedRepo): RepoSnapshot {
@@ -89,7 +89,7 @@ export class Studio {
   refresh(projectId: string): RepoSnapshot {
     const project = this.store.getProject(projectId);
     if (project.sourceKind === 'bundle') return this.snapshot(projectId);
-    return this.indexRepo(project, importRepository(project.root, DEFAULT_LIMITS, project.include));
+    return this.indexRepo(project, importRepository(project.root, { include: project.include }));
   }
 
   snapshot(projectId: string): RepoSnapshot {

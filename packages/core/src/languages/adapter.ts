@@ -2,6 +2,7 @@
 // An adapter only reads its own file: it reports declarations, call sites and import bindings, never edges.
 import type { Node } from 'web-tree-sitter';
 import type { GrammarLanguage } from '../grammars.ts';
+import type { ResolvedImport } from '../resolve.ts';
 import type { CodeSymbol, SourceFile, Span, SymbolKind } from '../schema.ts';
 
 /** How a call names its target. `member` covers `x.f()`; `path` covers Rust `Type::f()`. */
@@ -16,14 +17,13 @@ export interface CallSite { from: string; callee: string; receiver: Receiver; si
 /** `name: null` binds the whole module (`import m`); `module` is the language's own spelling (e.g. `..pkg.m`). */
 export interface ImportBinding { local: string; module: string; name: string | null }
 
-/** `name: null` = the local name is the module itself, so `local.f()` targets `file#f`. */
-export interface ResolvedImport { file: string; name: string | null }
-
 export interface Extracted {
   symbols: CodeSymbol[]; calls: CallSite[]; imports: ImportBinding[];
   /** A name this file registers globally, so `Name.f()` anywhere means this file's `f` (GDScript `class_name`). */
   globalType?: string;
 }
+
+export type { ResolvedImport };
 
 export interface LanguageAdapter {
   readonly language: GrammarLanguage;
@@ -50,7 +50,16 @@ export function toSymbol(file: SourceFile, d: Declaration): CodeSymbol {
   };
 }
 
-/** Every `callType` node under `body`, with its owner; nested declarations stay attributed to the outer symbol. */
-export function callsIn(body: Node | null, callType: string): Node[] {
-  return body ? body.descendantsOfType(callType).filter((n): n is Node => n !== null) : [];
+/** Python and GDScript mark private names with a leading underscore. */
+export const underscorePublic = (name: string): boolean => !name.startsWith('_');
+
+type CallTarget = Pick<CallSite, 'callee' | 'receiver'> | null;
+
+/** Records the `call.types` nodes under `body` as calls from `owner`; calls inside nested declarations count toward
+ * the outer symbol. `targetOf` reads one call node, or returns null for a call it cannot name. */
+export function addCalls(out: Extracted, owner: CodeSymbol, body: Node | null, call: { types: string[]; targetOf: (call: Node) => CallTarget }): void {
+  for (const node of body?.descendantsOfType(call.types) ?? []) {
+    const target = node && call.targetOf(node);
+    if (target) out.calls.push({ from: owner.id, ...target, site: spanOfNode(owner.span.file, node) });
+  }
 }

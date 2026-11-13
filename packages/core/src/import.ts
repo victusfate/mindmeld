@@ -101,8 +101,13 @@ function admit(state: WalkState): void {
   }
 }
 
-/** `include` is the project's import scope: repo-relative directories, already validated with `isSafeRelativePath`. */
-export function importRepository(rootPath: string, limits: ImportLimits = DEFAULT_LIMITS, include: readonly string[] = []): ImportedRepo {
+export interface ImportOptions {
+  limits?: ImportLimits;
+  /** The project's import scope: repo-relative directories, already validated with `isSafeRelativePath`. */
+  include?: readonly string[];
+}
+
+export function importRepository(rootPath: string, { limits = DEFAULT_LIMITS, include = [] }: ImportOptions = {}): ImportedRepo {
   const root = realpathSync(rootPath);
   if (!lstatSync(root).isDirectory()) throw new Error('repository root must be a directory');
   const out: ImportedRepo = { files: [], contents: new Map(), skipped: [], snapshotHash: '' };

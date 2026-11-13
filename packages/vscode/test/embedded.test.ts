@@ -35,3 +35,11 @@ test('the extension embeds its own backend: no Connect, multi-language import, c
   await deactivate();
   await assert.rejects(fetch(`${baseUrl}/api/health`));
 });
+
+test('deactivating while the backend is still starting shuts that backend down', async () => {
+  fake.folder = Uri.file(realpathSync(copyFixture()));
+  const api = activate(fakeContext() as never);
+  await deactivate();
+  await api.ready;
+  assert.ok(api.session.baseUrl === '' || await fetch(`${api.session.baseUrl}/api/health`).then(() => false, () => true), 'no backend left listening');
+});
