@@ -19,7 +19,9 @@ export const MENU_IDS = {
 } as const;
 
 export function menuTemplate(actions: MenuActions, opts: { dev: boolean; mac: boolean }): MenuItemConstructorOptions[] {
-  const view: MenuItemConstructorOptions[] = [{ role: 'reload' }];
+  const view: MenuItemConstructorOptions[] = [
+    { role: 'reload' }, { type: 'separator' }, { role: 'resetZoom' }, { role: 'zoomIn' }, { role: 'zoomOut' },
+  ];
   if (opts.dev) view.push({ type: 'separator' }, { role: 'toggleDevTools' });
   const template: MenuItemConstructorOptions[] = [
     {

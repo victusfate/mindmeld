@@ -32,6 +32,7 @@ test('DevTools only in dev; app menu only on mac', () => {
   assert.ok(!roles(false, false).includes('toggleDevTools'));
   assert.ok(roles(true, false).includes('toggleDevTools'));
   assert.ok(roles(false, false).includes('reload'));
+  for (const zoom of ['resetZoom', 'zoomIn', 'zoomOut']) assert.ok(roles(false, false).includes(zoom), zoom);
   assert.ok(!roles(false, false).includes('appMenu'));
   assert.ok(roles(false, true).includes('appMenu'));
 });
