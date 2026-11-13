@@ -60,15 +60,27 @@ test('python: functions, classes, methods, imports and bounded name matches', ()
   assert.equal(edge(idx, 'tools/pipeline.py#Stage.run', 'tools/pipeline.py#Stage.prepare'), 'this-member');
   assert.equal(edge(idx, 'tools/pipeline.py#Stage.run', 'tools/util.py#clamp'), 'import');
   assert.equal(edge(idx, 'tools/pipeline.py#Stage.run', 'tools/pipeline.py#helper'), 'local');
-  assert.equal(edge(idx, 'tools/pipeline.py#Stage.run', 'tools/pipeline.py#A.render'), 'name-match');
+  assert.equal(edge(idx, 'tools/pipeline.py#Stage.run', 'tools/pipeline.py#A.render'), undefined, 'unknown receivers are never guessed');
   assert.ok(idx.imports.some(i => i.from === 'tools/pipeline.py' && i.to === 'tools/util.py'));
   assert.ok(idx.edges.every(e => e.provenance === 'static' && e.kind === 'call'));
 });
 
-test('a common method name with more candidates than the bound produces no name-match edge', () => {
-  const classes = ['A', 'B', 'C', 'D'].map(c => `class ${c}:\n    def get(self):\n        pass\n`).join('\n');
-  const idx = index({ 'm.py': `${classes}\ndef use(x):\n    x.get()\n` });
-  assert.equal(idx.edges.filter(e => e.from === 'm.py#use').length, 0);
+test('a name with more candidates than the bound produces no name-match edge', () => {
+  const files = Object.fromEntries(['a', 'b', 'c', 'd'].map(m => [`src/${m}.rs`, 'pub fn helper() {}\n']));
+  const idx = index({ ...files, 'src/main.rs': 'fn main() { helper(); }\n' });
+  assert.equal(idx.edges.filter(e => e.from === 'src/main.rs#main').length, 0);
+  const few = index({ 'src/a.rs': 'pub fn helper() {}\n', 'src/main.rs': 'fn main() { helper(); }\n' });
+  assert.equal(edge(few, 'src/main.rs#main', 'src/a.rs#helper'), 'name-match');
+});
+
+test('python and gdscript bare calls to unknown names are builtins or engine methods, not name matches', () => {
+  const idx = index({
+    'a.py': 'def quit():\n    pass\n',
+    'b.py': 'def main():\n    quit()\n',
+    'tools/a.gd': 'func quit():\n\tpass\n',
+    'tools/b.gd': 'extends SceneTree\nfunc _init():\n\tquit()\n\tget_tree().quit()\n',
+  });
+  assert.deepEqual(idx.edges.filter(e => e.from === 'b.py#main' || e.from === 'tools/b.gd#_init'), []);
 });
 
 test('syntax errors keep the symbols that parsed and never throw', () => {
@@ -149,7 +161,7 @@ test('gdscript: script functions, inner classes, implicit self and class-qualifi
   assert.equal(symbol(idx, 'godot/player.gd#Inner.go')?.kind, 'method');
   assert.equal(edge(idx, 'godot/player.gd#_ready', 'godot/player.gd#heal'), 'this-member');
   assert.equal(idx.edges.filter(e => e.from === 'godot/player.gd#_ready' && e.to === 'godot/player.gd#heal').map(e => e.resolution).sort().join(), 'local,this-member');
-  assert.equal(edge(idx, 'godot/player.gd#_ready', 'godot/helper.gd#compute'), 'name-match');
+  assert.equal(edge(idx, 'godot/player.gd#_ready', 'godot/helper.gd#compute'), 'import', 'class_name is a global binding');
   assert.deepEqual(idx.edges.filter(e => e.from === 'godot/player.gd#Inner.go').map(e => [e.to, e.resolution]),
     [['godot/player.gd#Inner.stop', 'this-member'], ['godot/player.gd#Inner.stop', 'local']]);
 });
