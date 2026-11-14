@@ -1,4 +1,4 @@
-// Studio service: the single API every interface (server, desktop, VS Code) goes through.
+// Studio service: the single API the server and every other caller go through.
 import { sealBundle, validateBundle, type EvidenceBundle } from './bundle.ts';
 import { resolveCitation, type CitationContext } from './citations.ts';
 import { diffRuns, type RunDiff } from './diff.ts';

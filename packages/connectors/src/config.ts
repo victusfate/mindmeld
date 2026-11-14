@@ -1,4 +1,4 @@
-// Builds connectors from environment variables, shared by the server, desktop app and container image.
+// Builds connectors from environment variables, shared by the server and the container image.
 import { join } from 'node:path';
 import type { ModelConnector, SandboxConnector, SourceConnector } from '@mindmeld/core';
 import { DisabledSandbox, OciSandbox } from './sandbox.ts';

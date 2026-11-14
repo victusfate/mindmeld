@@ -1,8 +1,7 @@
 #!/usr/bin/env node
 // mindmeld-studio [--port N] [--host H] [--data DIR] [--project PATH] [--include DIR]…
 // mindmeld-studio --usage [--json] [--data DIR]   prints recorded usage (to share back) and exits
-// Starts the localhost backend and prints the one-time login URL. The CLI is an implementation
-// interface; the product is the desktop app, the browser UI and the VS Code extension.
+// Starts the localhost backend and prints the one-time login URL for the browser UI.
 import { parseArgs } from 'node:util';
 import { homedir } from 'node:os';
 import { join } from 'node:path';

@@ -7,7 +7,7 @@ Types: `packages/core/src/schema.ts`, `usage.ts`, `diff.ts`. Typed client: `pack
 
 ## Auth and transport
 
-- Listens on `127.0.0.1:8787` by default (`MINDMELD_PORT`/`--port`; embedders such as the desktop app pick a random port). `Host` must be a loopback name (or `MINDMELD_ALLOWED_HOSTS`);
+- Listens on `127.0.0.1:8787` by default (`MINDMELD_PORT`/`--port`; `0` picks a free port). `Host` must be a loopback name (or `MINDMELD_ALLOWED_HOSTS`);
   a foreign `Origin` is refused (403), a foreign `Host` gets 421.
 - Every `/api/*` route except `/api/health` needs `Authorization: Bearer <token>` **or** the `mm_token` cookie
   (HttpOnly, SameSite=Strict) set by `GET /auth?token=<token>` → 303 to `/`. Cookie-authenticated non-GET requests

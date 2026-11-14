@@ -23,8 +23,8 @@ export default tseslint.config(
   // holds subagent worktrees, which are other checkouts of this repo. fixtures/** are studied (untrusted) sample
   // repositories for Mind Meld Studio tests, deliberately containing a secret and a prompt-injection string.
   { ignores: ['lib/linters/**', 'fixtures/**', '**/*.scaffold-new', 'node_modules/**', '.tooling/**', '.claude/worktrees/**',
-    // Build outputs: packages/*/dist (bundled Electron main, web UI) and electron-builder's packages/desktop/release.
-    'packages/*/dist/**', 'packages/desktop/release/**'] },
+    // Build outputs: packages/*/dist (the web UI bundle).
+    'packages/*/dist/**'] },
   js.configs.recommended,
   ...tseslint.configs.recommendedTypeChecked,
   {
