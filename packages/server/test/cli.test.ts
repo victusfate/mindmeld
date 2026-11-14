@@ -25,6 +25,10 @@ test('parseCli: positional paths, --project alias, --no-open, readable errors', 
   assert.equal(parseCli(['-h']).help, true);
   assert.throws(() => parseCli(['--port', 'abc']), CliUsageError);
   assert.throws(() => parseCli(['--bogus']), CliUsageError);
+  assert.deepEqual([parseCli(['mcp']).command, parseCli(['mcp']).projects], ['mcp', ['.']], 'mcp defaults to the current directory');
+  assert.deepEqual(parseCli(['mcp', 'repo']).projects, ['repo']);
+  assert.equal(parseCli(['repo']).command, 'serve');
+  assert.throws(() => parseCli(['mcp', 'a', 'b']), /at most one PATH/);
 });
 
 test('openCommand: macOS, Windows, WSL and other Linux', () => {

@@ -21,7 +21,8 @@ export interface SkippedFile { path: string; reason: string }
 
 export interface Span { file: string; startLine: number; endLine: number }
 
-export type SymbolKind = 'function' | 'class' | 'method' | 'variable-function';
+export const SYMBOL_KINDS = ['function', 'class', 'method', 'variable-function'] as const;
+export type SymbolKind = typeof SYMBOL_KINDS[number];
 export interface CodeSymbol {
   /** Stable within a snapshot: `<file>#<qualifiedName>`. */
   id: string;
