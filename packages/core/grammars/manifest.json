@@ -1,0 +1,29 @@
+[
+  {
+    "language": "rust",
+    "file": "tree-sitter-rust.wasm",
+    "package": "tree-sitter-rust",
+    "version": "0.24.0",
+    "license": "MIT",
+    "built": null,
+    "sha256": "f65f354215611fd94ad34134b3427eb3d58cbb745df7b6509ba722184db73d57"
+  },
+  {
+    "language": "python",
+    "file": "tree-sitter-python.wasm",
+    "package": "tree-sitter-python",
+    "version": "0.25.0",
+    "license": "MIT",
+    "built": null,
+    "sha256": "16108b50df4ee9a30168794252ab55e7c93bfc5765d7fa0aa3e335752c515f47"
+  },
+  {
+    "language": "gdscript",
+    "file": "tree-sitter-gdscript.wasm",
+    "package": "tree-sitter-gdscript",
+    "version": "6.1.0",
+    "license": "MIT",
+    "built": "tree-sitter-cli@0.27.2",
+    "sha256": "97529ff6332eaedb4f1cbf231ff109b85f5cdb0e197f0b201ea2fb91e92a5386"
+  }
+]

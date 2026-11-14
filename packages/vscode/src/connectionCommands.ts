@@ -30,6 +30,12 @@ async function restoreProject(ctx: Ctx): Promise<void> {
   if (remembered && !(await ctx.session.useProject(remembered))) await ctx.context.workspaceState.update(PROJECT_KEY, undefined);
 }
 
+/** Connects to the backend running in the extension host. Its token is per-start, so it is never stored. */
+export async function connectEmbedded(ctx: Ctx, backend: { url: string; token: string }): Promise<void> {
+  await ctx.session.connect(backend.url, backend.token);
+  await restoreProject(ctx);
+}
+
 /** Reconnects silently at startup when a token is stored; stays disconnected (with a status-bar hint) otherwise. */
 export async function restoreConnection(ctx: Ctx): Promise<void> {
   const token = await ctx.context.secrets.get(TOKEN_SECRET);
@@ -57,7 +63,7 @@ async function exportBundle(ctx: Ctx): Promise<void> {
 
 async function openStudio(ctx: Ctx): Promise<void> {
   ctx.session.connected();
-  const token = await ctx.context.secrets.get(TOKEN_SECRET);
+  const token = ctx.session.token;
   await vscode.env.openExternal(vscode.Uri.parse(token ? loginUrl(ctx.session.baseUrl, token) : ctx.session.baseUrl));
 }
 

@@ -2,8 +2,9 @@
 import { sealBundle, validateBundle, type EvidenceBundle } from './bundle.ts';
 import { resolveCitation, type CitationContext } from './citations.ts';
 import { diffRuns, type RunDiff } from './diff.ts';
-import { importRepository, type ImportedRepo } from './import.ts';
-import { indexSources, INDEXER_VERSION, type FileImport } from './indexer.ts';
+import { importRepository, isSafeRelativePath, type ImportedRepo } from './import.ts';
+import { indexerVersion, indexSources, type FileImport } from './indexer.ts';
+import type { Grammars } from './grammars.ts';
 import { askQuestion, ModelUnavailableError, type ModelConnector, type ModelStatus } from './qa.ts';
 import { newId } from './hash.ts';
 import { executeRun, type SandboxConnector, type SandboxStatus } from './runner.ts';
@@ -11,14 +12,18 @@ import { NotFoundError, type EvidenceStore, type Project } from './store.ts';
 import { summarizeUsage, UNKNOWN_USAGE, type ModelUsage, type ProviderLimit, type UsageKind, type UsageRecord, type UsageSummary } from './usage.ts';
 import type { Answer, CodeSymbol, Entry, ObservedEdge, RepoSnapshot, ResolvedCitation, Run, StaticEdge, TraceEvent } from './schema.ts';
 
-export interface SourceRef { kind: string; ref: string; name?: string }
+export interface SourceRef { kind: string; ref: string; name?: string; include?: string[] }
 /** Implemented by @mindmeld/connectors: turns a reference into a local, read-only directory. Never executes repo code. */
 export interface SourceConnector {
   readonly kind: string;
   materialize(ref: string): Promise<{ root: string; name: string }>;
 }
 
-export interface StudioOptions { store: EvidenceStore; sandbox: SandboxConnector; model: ModelConnector | null; sources: SourceConnector[]; runDir?: string }
+export interface StudioOptions {
+  store: EvidenceStore; sandbox: SandboxConnector; model: ModelConnector | null; sources: SourceConnector[]; runDir?: string;
+  /** Loaded tree-sitter grammars; without them only TS/JS files yield symbols. */
+  grammars?: Grammars;
+}
 export interface Graph {
   project: Project;
   snapshot: RepoSnapshot;
@@ -45,24 +50,27 @@ export class Studio {
     return {
       sandbox: { name: this.opts.sandbox.name, ...(await this.opts.sandbox.status()) },
       model: model ? { name: model.name, ...(await model.status()) } : { name: null, available: false, reason: 'no model configured (optional)', model: null },
-      indexer: INDEXER_VERSION,
+      indexer: indexerVersion(this.opts.grammars),
     };
   }
 
   async addProject(source: SourceRef): Promise<{ project: Project; snapshot: RepoSnapshot }> {
     const connector = this.opts.sources.find(s => s.kind === source.kind);
     if (!connector) throw new ValidationError(`unknown source kind ${source.kind}`);
+    const include = source.include?.length ? source.include : undefined;
+    if (include?.some(dir => !isSafeRelativePath(dir))) throw new ValidationError('include entries must be repo-relative directories');
     const { root, name } = await connector.materialize(source.ref);
-    const project = this.store.createProject({ name: source.name || name, sourceKind: source.kind, sourceRef: source.ref, root });
-    return { project, snapshot: this.indexRepo(project, importRepository(root)) };
+    const project = this.store.createProject({ name: source.name || name, sourceKind: source.kind, sourceRef: source.ref, root, include });
+    return { project, snapshot: this.indexRepo(project, importRepository(root, { include })) };
   }
 
   private indexRepo(project: Project, repo: ImportedRepo): RepoSnapshot {
     const latest = this.store.latestSnapshot(project.id);
-    if (latest && latest.snapshotHash === repo.snapshotHash) return latest;
+    const version = indexerVersion(this.opts.grammars);
+    if (latest && latest.snapshotHash === repo.snapshotHash && latest.indexerVersion === version) return latest;
     const started = performance.now();
-    const snap = this.store.saveSnapshot(project.id, repo, indexSources(repo.files, repo.contents), INDEXER_VERSION);
-    this.record({ kind: 'index', projectId: project.id, provider: INDEXER_VERSION, started, ok: true, detail: `${repo.files.length} files` });
+    const snap = this.store.saveSnapshot(project.id, repo, indexSources(repo.files, repo.contents, this.opts.grammars), version);
+    this.record({ kind: 'index', projectId: project.id, provider: version, started, ok: true, detail: `${repo.files.length} files` });
     return snap;
   }
 
@@ -81,7 +89,7 @@ export class Studio {
   refresh(projectId: string): RepoSnapshot {
     const project = this.store.getProject(projectId);
     if (project.sourceKind === 'bundle') return this.snapshot(projectId);
-    return this.indexRepo(project, importRepository(project.root));
+    return this.indexRepo(project, importRepository(project.root, { include: project.include }));
   }
 
   snapshot(projectId: string): RepoSnapshot {
@@ -143,6 +151,8 @@ export class Studio {
   /** Allowlisting is an explicit user act stored by Studio; nothing in the studied repo can register an entry. */
   addEntry(projectId: string, symbolId: string, note = ''): Entry {
     const s = this.symbol(projectId, symbolId);
+    const language = this.snapshot(projectId).files.find(f => f.path === s.span.file)?.language;
+    if (language !== 'typescript' && language !== 'javascript') throw new ValidationError(`runs support TypeScript and JavaScript only; ${s.span.file} is ${language}`);
     if (!s.exported || !['function', 'variable-function'].includes(s.kind)) throw new ValidationError('only exported functions can be allowlisted');
     return this.store.addEntry(projectId, symbolId, note.slice(0, MAX_NOTE));
   }

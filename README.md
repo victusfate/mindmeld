@@ -6,7 +6,9 @@ Learn an unfamiliar codebase from evidence, not guesses. Point Mind Meld Studio 
 - **Real runs you can replay.** Pick an allowlisted entry point, give it inputs, and Studio runs it in a locked-down container and records what was actually called. Step through the trace or compare two runs side by side.
 - **Answers with citations.** Ask a question and a local agent CLI you're already logged into (`claude`, `codex`, `agy` or `pi`) answers from the indexed source and recorded runs. Each sentence cites the code or trace it rests on, and anything it can't support is marked *unknown*.
 
-It runs as a browser app, an Electron desktop app or a VS Code extension, all talking to one local backend.
+It runs as a browser app, an Electron desktop app or a VS Code extension. The browser uses a local backend you start; the desktop app and the extension run their own.
+
+It indexes TypeScript, JavaScript, Rust, Python and GDScript; runs are TypeScript/JavaScript only.
 
 > **Status:** prototype. The localhost API (v1) is frozen; everything else may change.
 
@@ -37,7 +39,7 @@ The full walkthrough, with configuration, the desktop and VS Code apps, the cont
 
 | Path | What's there |
 | --- | --- |
-| `packages/core` | Evidence engine: safe repo import, TypeScript indexer, run recording, SQLite store, staleness, cited Q&A, bundles, usage |
+| `packages/core` | Evidence engine: safe repo import, TypeScript and tree-sitter (Rust, Python, GDScript) indexers, run recording, SQLite store, staleness, cited Q&A, bundles, usage |
 | `packages/connectors` | Docker/Podman sandbox, local agent-CLI model connector, local and git sources |
 | `packages/server` | Localhost API v1 with token/cookie auth ([`api.md`](docs/mind-meld-studio/api.md)) |
 | `packages/client` | Typed API client |

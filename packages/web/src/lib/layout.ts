@@ -5,7 +5,12 @@ import type { CodeSymbol } from '@mindmeld/client';
 const COLUMN_WIDTH = 280;
 const ROW_HEIGHT = 92;
 const FILE_GAP = 22;
-export { COLUMN_WIDTH, ROW_HEIGHT, FILE_GAP };
+/** Above this many symbols, drawing every file at once freezes the page (voidhorizon: 42k symbols). */
+const LARGE_MAP = 1500;
+export { COLUMN_WIDTH, ROW_HEIGHT, FILE_GAP, LARGE_MAP };
+
+/** The file filter's starting value: every file ('') for a small project, otherwise the first file (sorted list). */
+export const initialFile = (files: string[], symbolCount: number): string => (symbolCount > LARGE_MAP ? files[0] ?? '' : '');
 
 export interface Point { x: number; y: number }
 export interface Link { from: string; to: string }

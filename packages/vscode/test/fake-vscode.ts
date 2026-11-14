@@ -2,7 +2,8 @@
 // CodeLens from node:test. The VS Code download is unavailable here, so @vscode/test-electron cannot run.
 // Tests script user input through `fake` (queued input-box answers and quick-pick choosers) and read back
 // what the extension showed (messages, panels, documents, status bar, decorations).
-import { readFileSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 type Listener<T> = (value: T) => unknown;
@@ -165,12 +166,14 @@ export const env = {
   openExternal: (uri: Uri) => { fake.opened.push(uri.toString()); return Promise.resolve(true); },
 };
 
-/** An ExtensionContext with in-memory secret storage and workspace state. */
+/** An ExtensionContext with in-memory secret storage and workspace state, and a temporary global storage dir. */
 export function fakeContext() {
   const secrets = new Map<string, string>();
   const state = new Map<string, unknown>();
   return {
     subscriptions: [] as Disposable[],
+    extensionPath: new URL('..', import.meta.url).pathname,
+    globalStorageUri: Uri.file(mkdtempSync(join(tmpdir(), 'mm-vscode-storage-'))),
     secrets: { get: (k: string) => Promise.resolve(secrets.get(k)), store: (k: string, v: string) => { secrets.set(k, v); return Promise.resolve(); }, delete: (k: string) => { secrets.delete(k); return Promise.resolve(); } },
     workspaceState: { get: (k: string) => state.get(k), update: (k: string, v: unknown) => { state.set(k, v); return Promise.resolve(); } },
     secretValues: secrets,

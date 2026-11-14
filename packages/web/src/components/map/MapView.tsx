@@ -4,7 +4,7 @@ import { useCallback, useMemo, useState } from 'react';
 import { Background, Controls, MarkerType, ReactFlow, type Edge, type NodeChange } from '@xyflow/react';
 import type { Entry, Graph } from '@mindmeld/client';
 import { mapEdges, type EdgeMode, type MapEdge } from '../../lib/edges.ts';
-import { fileSlots, layoutSymbols } from '../../lib/layout.ts';
+import { fileSlots, initialFile, layoutSymbols } from '../../lib/layout.ts';
 import { SymbolNode, type SymbolNodeType } from './SymbolNode.tsx';
 import { Legend } from './Legend.tsx';
 
@@ -49,14 +49,16 @@ const matches = (q: string, name: string, id: string): boolean => !q || name.toL
 
 export function MapView({ graph, entries, selected, current, path, onSelect }: Props) {
   const [mode, setMode] = useState<EdgeMode>('both');
-  const [file, setFile] = useState('');
+  const files = useMemo(() => [...new Set(graph.symbols.map(s => s.span.file))].sort(), [graph]);
+  const [file, setFile] = useState(() => initialFile(files, graph.symbols.length));
   const [query, setQuery] = useState('');
   const q = query.trim().toLowerCase();
   const [sizes, onNodesChange] = useMeasured();
-  const files = useMemo(() => [...new Set(graph.symbols.map(s => s.span.file))].sort(), [graph]);
-  const positions = useMemo(() => layoutSymbols(graph.symbols, [...graph.staticEdges.filter(e => e.kind === 'call'), ...graph.observedEdges]), [graph]);
-  const slots = useMemo(() => fileSlots(graph.symbols, FILE_SLOTS), [graph]);
   const visibleSymbols = useMemo(() => graph.symbols.filter(s => !file || s.span.file === file), [graph, file]);
+  // Laid out from the shown symbols only: one file's symbols placed by a whole-repo layout can sit too far apart
+  // to fit on screen at the minimum zoom (seen on a 42k-symbol project).
+  const positions = useMemo(() => layoutSymbols(visibleSymbols, [...graph.staticEdges.filter(e => e.kind === 'call'), ...graph.observedEdges]), [graph, visibleSymbols]);
+  const slots = useMemo(() => fileSlots(graph.symbols, FILE_SLOTS), [graph]);
   const visible = useMemo(() => new Set(visibleSymbols.map(s => s.id)), [visibleSymbols]);
   const entryIds = useMemo(() => new Set(entries.map(e => e.symbolId)), [entries]);
   const onPathNodes = useMemo(() => new Set([...path].flatMap(k => k.split('→'))), [path]);
@@ -79,14 +81,15 @@ export function MapView({ graph, entries, selected, current, path, onSelect }: P
         </label>
         <label>File
           <select value={file} onChange={e => setFile(e.target.value)}>
-            <option value="">all files</option>{files.map(f => <option key={f} value={f}>{f}</option>)}
+            <option value="">all files ({graph.symbols.length} symbols)</option>{files.map(f => <option key={f} value={f}>{f}</option>)}
           </select>
         </label>
         <input type="search" placeholder="Search symbols (Enter opens)" aria-label="Search symbols" value={query} onChange={e => setQuery(e.target.value)}
           onKeyDown={e => { if (e.key === 'Enter' && firstMatch) onSelect(firstMatch.id); }} />
       </div>
       <div className="map-canvas">
-        <ReactFlow key={graph.project.id} nodes={nodes} edges={edges} onNodesChange={onNodesChange} nodeTypes={NODE_TYPES} fitView minZoom={MIN_ZOOM}
+        {/* Keyed by file too: fitView only runs on mount, so a new file selection needs a fresh fit. */}
+        <ReactFlow key={`${graph.project.id}:${file}`} nodes={nodes} edges={edges} onNodesChange={onNodesChange} nodeTypes={NODE_TYPES} fitView minZoom={MIN_ZOOM}
           nodesConnectable={false} edgesFocusable={false} elementsSelectable={false} proOptions={{ hideAttribution: true }}>
           <Background gap={GRID_GAP} size={1} />
           <Controls showInteractive={false} />

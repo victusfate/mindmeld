@@ -7,6 +7,8 @@ export class NotReadyError extends Error {}
 export class Session {
   client: StudioClient | null = null;
   baseUrl = '';
+  /** The access token of the current connection; held in memory only (secret storage keeps the external one). */
+  token: string | null = null;
   projectId: string | null = null;
   graph: Graph | null = null;
   runs: Run[] = [];
@@ -28,6 +30,7 @@ export class Session {
     this.status = await client.status();
     this.client = client;
     this.baseUrl = baseUrl;
+    this.token = token;
     await this.loadUsage();
     this.notify();
     return this.status;
@@ -40,6 +43,7 @@ export class Session {
 
   disconnect(): void {
     this.client = null;
+    this.token = null;
     this.status = null;
     this.usage = null;
     this.graph = null;

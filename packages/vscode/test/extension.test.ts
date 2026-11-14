@@ -21,6 +21,7 @@ after(() => srv.close());
 
 const dir = realpathSync(copyFixture());
 fake.folder = Uri.file(dir);
+fake.config.set('backend', 'external');
 const context = fakeContext();
 const api = activate(context as never);
 await api.ready;

@@ -1,6 +1,7 @@
 # Mind Meld Studio — prototype quickstart
 
-Status: prototype. All interfaces talk to one localhost backend (`packages/server`).
+Status: prototype. Every interface talks to the same localhost backend (`packages/server`): the browser to a
+separately started one, the desktop app and the VS Code extension to a copy they run themselves.
 
 ## Prerequisites
 
@@ -18,6 +19,11 @@ npm run studio:start -- --project /path/to/repo      # prints http://127.0.0.1:8
 ```
 
 Open the printed URL (it sets an HttpOnly session cookie). Data lives in `~/.mindmeld` (`--data DIR` to change).
+
+Indexed languages: TypeScript/JavaScript (TypeScript compiler) and Rust, Python and GDScript (tree-sitter grammars
+vendored in `packages/core/grammars`). JSON, Markdown and text files are imported for citations and Q&A only.
+Runs are TypeScript/JavaScript only. An import admits code files before data files, up to 20,000 files / 150 MB;
+narrow a large repo with `--include DIR` (repeatable, repo-relative) or `include` on `POST /api/projects`.
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
@@ -70,8 +76,12 @@ If Electron's binary is missing after `npm install` (npm's install-script policy
 code --install-extension packages/vscode/mindmeld-studio-0.1.0.vsix
 ```
 
-Start the backend, then **Mind Meld: Connect** and paste the printed login URL; then Import Current Workspace,
+The extension starts its own backend inside VS Code (setting `mindmeld.backend`, default `embedded`; evidence is kept
+in the extension's global storage), so no server or login URL is needed: run Import Current Workspace,
 Allowlist Function at Cursor, Run Entry, Ask Question, Show Usage. The status bar shows 5h tokens and plan usage.
+In a WSL or remote window, install the extension on the remote side so its backend can read the workspace.
+To use a separately started server instead, set `mindmeld.backend` to `external`, reload, then **Mind Meld: Connect**
+and paste the printed login URL.
 
 ## Container
 

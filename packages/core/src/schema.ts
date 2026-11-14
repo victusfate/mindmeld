@@ -6,7 +6,7 @@ import type { ModelUsage, ProviderLimit } from './usage.ts';
 export const SCHEMA_VERSION = 2;
 
 export interface SourceFile { path: string; hash: string; bytes: number; language: Language }
-export type Language = 'typescript' | 'javascript' | 'json' | 'markdown' | 'text';
+export type Language = 'typescript' | 'javascript' | 'rust' | 'python' | 'gdscript' | 'json' | 'markdown' | 'text';
 
 export interface RepoSnapshot {
   id: string;

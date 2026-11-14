@@ -1,10 +1,15 @@
 // Static TypeScript/JavaScript index: symbols, file imports and call sites with exact spans.
 // Parses only; never executes code or resolves packages. Every edge is a *possible* call.
 import ts from 'typescript';
+import type { Grammars } from './grammars.ts';
 import { collectSymbols, isCodeFile, parse, spanOf, type FoundSymbol } from './symbols.ts';
-import type { CodeSymbol, EdgeResolution, SourceFile, StaticEdge } from './schema.ts';
+import { indexTreeSources } from './tree-index.ts';
+import { callEdge, known, ownType, type ResolvedImport, type Target } from './resolve.ts';
+import type { CodeSymbol, SourceFile, StaticEdge } from './schema.ts';
 
-export const INDEXER_VERSION = `ts-index/1 typescript/${ts.version}`;
+const TS_INDEXER = `ts-index/1 typescript/${ts.version}`;
+/** Recorded on every snapshot; a different version means the snapshot must be re-indexed. */
+export const indexerVersion = (grammars?: Grammars): string => (grammars ? `${TS_INDEXER} ${grammars.version}` : TS_INDEXER);
 
 export interface FileImport { from: string; to: string; names: string[] }
 export interface StaticIndex { symbols: CodeSymbol[]; edges: StaticEdge[]; imports: FileImport[] }
@@ -30,8 +35,6 @@ export function resolveSpecifier(fromFile: string, spec: string, files: Set<stri
   return candidates.find(c => files.has(c)) ?? null;
 }
 
-interface Binding { file: string; name: string | null }  // name null = namespace import
-
 /** [local name, imported name | null for a namespace] pairs of one import clause. */
 function clauseBindings(clause: ts.ImportClause | undefined): [string, string | null][] {
   const out: [string, string | null][] = [];
@@ -42,8 +45,8 @@ function clauseBindings(clause: ts.ImportClause | undefined): [string, string | 
   return out;
 }
 
-function importBindings(sf: ts.SourceFile, files: Set<string>, imports: FileImport[]): Map<string, Binding> {
-  const bindings = new Map<string, Binding>();
+function importBindings(sf: ts.SourceFile, files: Set<string>, imports: FileImport[]): Map<string, ResolvedImport> {
+  const bindings = new Map<string, ResolvedImport>();
   for (const stmt of sf.statements) {
     if (!ts.isImportDeclaration(stmt) || !ts.isStringLiteral(stmt.moduleSpecifier)) continue;
     const target = resolveSpecifier(sf.fileName, stmt.moduleSpecifier.text, files);
@@ -58,27 +61,25 @@ function importBindings(sf: ts.SourceFile, files: Set<string>, imports: FileImpo
   return bindings;
 }
 
-interface FileCtx { sf: ts.SourceFile; local: Map<string, CodeSymbol>; bindings: Map<string, Binding> }
+interface FileCtx { sf: ts.SourceFile; local: Map<string, CodeSymbol>; bindings: Map<string, ResolvedImport> }
 interface Project { byId: Map<string, CodeSymbol>; methodsByName: Map<string, CodeSymbol[]> }
-
-type Target = [string, EdgeResolution];
-const known = (project: Project, id: string | null, how: EdgeResolution): Target[] => (id && project.byId.has(id) ? [[id, how]] : []);
 
 function identifierTargets(name: string, file: FileCtx, project: Project): Target[] {
   const local = file.local.get(name);
   if (local && local.kind !== 'class') return [[local.id, 'local']];
   const b = file.bindings.get(name);
-  return known(project, b?.name ? `${b.file}#${b.name}` : null, 'import');
+  return known(project.byId, b?.name ? `${b.file}#${b.name}` : null, 'import');
 }
 
 function memberTargets(callee: ts.PropertyAccessExpression, owner: CodeSymbol, file: FileCtx, project: Project): Target[] {
   const member = callee.name.text;
-  if (callee.expression.kind === ts.SyntaxKind.ThisKeyword && owner.kind === 'method') {
-    const own = known(project, `${owner.span.file}#${owner.name.split('.')[0]}.${member}`, 'this-member');
+  const type = ownType(owner);
+  if (callee.expression.kind === ts.SyntaxKind.ThisKeyword && type) {
+    const own = known(project.byId, `${owner.span.file}#${type}.${member}`, 'this-member');
     if (own.length) return own;
   }
   const ns = ts.isIdentifier(callee.expression) ? file.bindings.get(callee.expression.text) : undefined;
-  if (ns && ns.name === null) return known(project, `${ns.file}#${member}`, 'import');
+  if (ns && ns.name === null) return known(project.byId, `${ns.file}#${member}`, 'import');
   return (project.methodsByName.get(member) ?? []).map((m): Target => [m.id, 'name-match']);
 }
 
@@ -92,9 +93,7 @@ function callEdges(found: FoundSymbol, file: FileCtx, project: Project): StaticE
   const owner = found.symbol;
   const visit = (node: ts.Node): void => {
     if (ts.isCallExpression(node)) {
-      for (const [to, resolution] of targets(node.expression, owner, file, project)) {
-        edges.push({ provenance: 'static', from: owner.id, to, kind: 'call', resolution, site: spanOf(file.sf, node) });
-      }
+      for (const target of targets(node.expression, owner, file, project)) edges.push(callEdge(owner.id, target, spanOf(file.sf, node)));
     }
     ts.forEachChild(node, visit);
   };
@@ -102,7 +101,15 @@ function callEdges(found: FoundSymbol, file: FileCtx, project: Project): StaticE
   return edges;
 }
 
-export function indexSources(files: SourceFile[], contents: Map<string, string>): StaticIndex {
+/** TS/JS through the TypeScript compiler; Rust, Python and GDScript through tree-sitter when grammars are loaded. */
+export function indexSources(files: SourceFile[], contents: Map<string, string>, grammars?: Grammars): StaticIndex {
+  const scripts = indexTypeScript(files, contents);
+  if (!grammars) return scripts;
+  const tree = indexTreeSources(files, contents, grammars);
+  return { symbols: [...scripts.symbols, ...tree.symbols], edges: [...scripts.edges, ...tree.edges], imports: [...scripts.imports, ...tree.imports] };
+}
+
+function indexTypeScript(files: SourceFile[], contents: Map<string, string>): StaticIndex {
   const codeFiles = files.filter(f => isCodeFile(f.path));
   const fileSet = new Set(codeFiles.map(f => f.path));
   const parsed = codeFiles.map(f => {

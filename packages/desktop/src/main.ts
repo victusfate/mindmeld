@@ -4,27 +4,29 @@
 // plan proposed. The repo's default language is TypeScript (.agent/default-language.md) and a Rust shell would need
 // owner approval; Electron lets the desktop app run the existing TypeScript backend in-process.
 //
-// The backend (Studio + HTTP server) runs inside this process on 127.0.0.1 with a random port and a fresh token.
+// The backend (Studio + HTTP server) runs inside this process on 127.0.0.1 with a random port and a fresh token (launchLocal).
 // The window logs in once through /auth?token=…, which swaps the token for an HttpOnly cookie; the renderer is
 // sandboxed, isolated and confined to the server's origin.
 import { app, BrowserWindow, Menu, session, shell, type WebContents } from 'electron';
-import { randomBytes } from 'node:crypto';
-import { delimiter, join } from 'node:path';
-import { launch } from '@mindmeld/server';
+import { delimiter, dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { bundledGrammarFiles } from '@mindmeld/core';
+import { launchLocal, type LocalBackend } from '@mindmeld/server';
 import { menuActions } from './actions.ts';
 import { menuTemplate } from './menu.ts';
 import { isAllowedNavigation, loginUrl, serverOrigin, webPreferences, windowOpenAction } from './policy.ts';
 import { loginShellPath, mergePath } from './shell-path.ts';
 
-const TOKEN_BYTES = 32;
 const WINDOW_SIZE = { width: 1280, height: 860, minWidth: 720, minHeight: 480 };
 const EXIT_OK = 0;
 const EXIT_FAILURE = 1;
 
-type Backend = Awaited<ReturnType<typeof launch>>;
-let backend: Backend | null = null;
+let backend: LocalBackend | null = null;
 let mainWindow: BrowserWindow | null = null;
 let shuttingDown = false;
+
+/** build.ts copies the tree-sitter files beside the bundle (inside the asar in packaged builds). */
+const GRAMMAR_FILES = bundledGrammarFiles(dirname(fileURLToPath(import.meta.url)));
 
 /** Packaged builds ship the web UI under resources/web; dev builds use the server's default (packages/web/dist). */
 function webDir(): string | undefined {
@@ -64,23 +66,21 @@ async function adoptLoginPath(): Promise<void> {
 async function start(): Promise<void> {
   await app.whenReady();
   await adoptLoginPath();
-  const token = randomBytes(TOKEN_BYTES).toString('base64url');
   const dataDir = join(app.getPath('userData'), 'studio');
-  backend = await launch({ env: process.env, dataDir, host: '127.0.0.1', port: 0, token, webDir: webDir() });
+  backend = await launchLocal({ env: process.env, dataDir, webDir: webDir(), grammarFiles: GRAMMAR_FILES });
   for (const note of backend.notes) console.log(`note: ${note}`);
-  const { studio, running } = backend;
-  lockDown(serverOrigin(running.url));
+  const { studio, url, token } = backend;
+  lockDown(serverOrigin(url));
   const actions = menuActions(studio, () => mainWindow, app.getPath('downloads'));
   Menu.setApplicationMenu(Menu.buildFromTemplate(menuTemplate(actions, { dev: !app.isPackaged, mac: process.platform === 'darwin' })));
-  openWindow(loginUrl(running.url, running.token));
+  openWindow(loginUrl(url, token));
 }
 
 /** Closes the HTTP server, then the SQLite store. Idempotent. */
 async function shutdown(): Promise<void> {
   const current = backend;
   backend = null;
-  if (!current) return;
-  try { await current.running.close(); } finally { current.studio.store.close(); }
+  await current?.close();
 }
 
 function onBeforeQuit(event: Electron.Event): void {

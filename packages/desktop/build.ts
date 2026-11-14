@@ -3,6 +3,7 @@
 // Only `electron` itself stays external. Run: node build.ts
 import { build } from 'esbuild';
 import { fileURLToPath } from 'node:url';
+import { copyGrammarAssets } from '../core/scripts/grammar-assets.ts';
 
 const root = fileURLToPath(new URL('.', import.meta.url));
 /** Electron 44 ships Node 24 (node:sqlite needs ≥ 22.13). */
@@ -33,3 +34,7 @@ await build({
   banner: { js: REQUIRE_SHIM },
   logLevel: 'warning',
 });
+
+// The tree-sitter runtime and grammars are WebAssembly files read at start-up, so they ship beside the bundle;
+// main.ts passes these paths to launch().
+copyGrammarAssets(`${root}dist`);

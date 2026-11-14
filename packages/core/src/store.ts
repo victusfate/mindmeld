@@ -9,7 +9,11 @@ import type { FileImport, StaticIndex } from './indexer.ts';
 import type { UsageRecord } from './usage.ts';
 import type { CodeSymbol, Entry, RepoSnapshot, Run, SourceFile, StaticEdge, TraceEvent } from './schema.ts';
 
-export interface Project { id: string; name: string; sourceKind: string; sourceRef: string; root: string; createdAt: string }
+export interface Project {
+  id: string; name: string; sourceKind: string; sourceRef: string; root: string; createdAt: string;
+  /** Import scope: repo-relative directories; absent means the whole repository. */
+  include?: string[];
+}
 
 const MIGRATIONS: string[] = [
   `CREATE TABLE projects (id TEXT PRIMARY KEY, name TEXT NOT NULL, source_kind TEXT NOT NULL, source_ref TEXT NOT NULL, root TEXT NOT NULL, created_at TEXT NOT NULL);
@@ -29,6 +33,7 @@ const MIGRATIONS: string[] = [
   `CREATE TABLE usage (id TEXT PRIMARY KEY, at TEXT NOT NULL, project_id TEXT, kind TEXT NOT NULL, data TEXT NOT NULL);
    CREATE INDEX usage_project ON usage (project_id, at);
    CREATE TRIGGER usage_append_only BEFORE UPDATE ON usage BEGIN SELECT RAISE(ABORT, 'usage records are append-only'); END;`,
+  `ALTER TABLE projects ADD COLUMN include_paths TEXT;`,
 ];
 
 type Row = Record<string, unknown>;
@@ -62,7 +67,8 @@ export class EvidenceStore {
 
   createProject(p: Omit<Project, 'id' | 'createdAt'>): Project {
     const project: Project = { ...p, id: newId('prj'), createdAt: new Date().toISOString() };
-    this.db.prepare('INSERT INTO projects VALUES (?, ?, ?, ?, ?, ?)').run(project.id, project.name, project.sourceKind, project.sourceRef, project.root, project.createdAt);
+    this.db.prepare('INSERT INTO projects VALUES (?, ?, ?, ?, ?, ?, ?)')
+      .run(project.id, project.name, project.sourceKind, project.sourceRef, project.root, project.createdAt, project.include ? JSON.stringify(project.include) : null);
     return project;
   }
 
@@ -176,7 +182,8 @@ export class EvidenceStore {
 export class NotFoundError extends Error {}
 
 function toProject(r: Row): Project {
-  return { id: String(r.id), name: String(r.name), sourceKind: String(r.source_kind), sourceRef: String(r.source_ref), root: String(r.root), createdAt: String(r.created_at) };
+  const project: Project = { id: String(r.id), name: String(r.name), sourceKind: String(r.source_kind), sourceRef: String(r.source_ref), root: String(r.root), createdAt: String(r.created_at) };
+  return typeof r.include_paths === 'string' ? { ...project, include: JSON.parse(r.include_paths) as string[] } : project;
 }
 function toEntry(r: Row): Entry {
   return { id: String(r.id), projectId: String(r.project_id), symbolId: String(r.symbol_id), note: String(r.note), createdAt: String(r.created_at) };
