@@ -2,6 +2,7 @@
 // with its source and its static and observed calls, a file outline, and re-indexing. Answers are plain text built
 // from the index; static edges say how they were resolved, so an agent can weigh a `name-match` accordingly.
 import { SYMBOL_KINDS, type CodeSymbol, type Graph, type ObservedEdge, type StaticEdge, type Studio } from '@mindmeld/core';
+import { countBy, push } from '../collections.ts';
 import { shortHash } from '../format.ts';
 import type { Tool } from './protocol.ts';
 
@@ -14,16 +15,7 @@ const where = (s: CodeSymbol): string => `${s.span.file}:${s.span.startLine}-${s
 const line = (s: CodeSymbol): string => `${s.id}  ${s.kind}${s.exported ? ' exported' : ''}  ${where(s)}`;
 const edgeLine = (id: string, e: StaticEdge): string => `  ${id} (${e.resolution}, ${e.site.file}:${e.site.startLine})`;
 
-function push<K, V>(map: Map<K, V[]>, key: K, value: V): void {
-  const list = map.get(key);
-  if (list) list.push(value); else map.set(key, [value]);
-}
-
-function tally(values: readonly string[]): string {
-  const counts = new Map<string, number>();
-  for (const v of values) counts.set(v, (counts.get(v) ?? 0) + 1);
-  return [...counts].sort((a, b) => b[1] - a[1]).map(([k, n]) => `${k} ${n}`).join(', ');
-}
+const tally = (values: readonly string[]): string => countBy(values).map(([k, n]) => `${k} ${n}`).join(', ');
 
 const top = (counts: Iterable<[string, number]>): string[] =>
   [...counts].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).slice(0, TOP).map(([k, n]) => `  ${k} (${n})`);

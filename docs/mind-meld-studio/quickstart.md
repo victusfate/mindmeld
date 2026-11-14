@@ -58,6 +58,18 @@ codex mcp add mindmeld -- mindmeld mcp /path/to/repo
 Any MCP client works the same way: command `mindmeld`, args `["mcp", "/path/to/repo"]` (Cursor:
 `.cursor/mcp.json`). Without `npm link`, use `node /path/to/mindmeld/packages/server/src/cli.ts mcp /path/to/repo`.
 
+## Code-map page to share
+
+`mindmeld explorer [PATH] [--out DIR]` writes `<repo>.explorer.json` and a self-contained `<repo>.explorer.html`
+(no server, no CDN; open it in any browser or send the file). Modules are the repo's files, or for a large repo its
+busiest directories split until the page holds 24, laid out in lanes by top-level directory; flows are static call
+chains from entry points that cross at least three modules. Calls matched only by name are left out.
+
+The page is counted from the index, so it has no prose. To add it, ask your agent (with the MCP server above) to fill
+in each node's `role`, `risks` and a `glossary` in the JSON from what the tools show, then re-render:
+`node scripts/explorer-render.ts <repo>.explorer.json` (from this checkout; `--check` validates). The format is
+`ExplorerSpec` in `scripts/explorer-spec.ts`.
+
 ## Usage tracking (share it back)
 
 Every index, sandbox run and model call is recorded (duration, success, tokens/cache/cost as the CLI reports them;

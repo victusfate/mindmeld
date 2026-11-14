@@ -5,6 +5,7 @@ Learn an unfamiliar codebase from evidence, not guesses. Point Mind Meld Studio 
 - **A source-linked map** of modules, symbols and the calls between them, built from a static index. Nothing is executed or installed to draw it.
 - **Real runs you can replay.** Pick an allowlisted entry point, give it inputs, and Studio runs it in a locked-down container and records what was actually called. Step through the trace or compare two runs side by side.
 - **Tools for your agent.** `mindmeld mcp` gives Claude Code, Codex, Cursor or any MCP client the same index: symbol search, source with static callers and callees, and calls observed in runs.
+- **A code-map page to share.** `mindmeld explorer` writes one self-contained HTML page: modules in lanes, call flows to step through, and suggested questions.
 - **Answers with citations.** Ask a question and a local agent CLI you're already logged into (`claude`, `codex`, `agy` or `pi`) answers from the indexed source and recorded runs. Each sentence cites the code or trace it rests on, and anything it can't support is marked *unknown*.
 
 It runs as a browser app on a local backend you start with one command, so it works alongside any editor.

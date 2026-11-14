@@ -29,6 +29,7 @@ test('parseCli: positional paths, --project alias, --no-open, readable errors', 
   assert.deepEqual(parseCli(['mcp', 'repo']).projects, ['repo']);
   assert.equal(parseCli(['repo']).command, 'serve');
   assert.throws(() => parseCli(['mcp', 'a', 'b']), /at most one PATH/);
+  assert.deepEqual([parseCli(['explorer', '--out', 'd']).command, parseCli(['explorer']).projects, parseCli(['explorer', '--out', 'd']).out], ['explorer', ['.'], 'd']);
 });
 
 test('openCommand: macOS, Windows, WSL and other Linux', () => {
