@@ -1,7 +1,7 @@
 # Mind Meld Studio — prototype quickstart
 
-Status: prototype. Every interface talks to the same localhost backend (`packages/server`): the browser to a
-separately started one, the desktop app and the VS Code extension to a copy they run themselves.
+Status: prototype. Studio is a browser UI (`packages/web`) served by a localhost backend (`packages/server`) that
+you start with one command.
 
 ## Prerequisites
 
@@ -49,7 +49,7 @@ node packages/server/src/cli.ts --usage            # human-readable summary
 node packages/server/src/cli.ts --usage --json     # JSONL, one record per line — attach this when sharing
 ```
 
-Also `GET /api/usage` and `GET /api/usage/export` (JSONL), and in each interface's usage view.
+Also `GET /api/usage` and `GET /api/usage/export` (JSONL), and in the browser's usage panel.
 
 ## Browser UI
 
@@ -58,31 +58,6 @@ npm run studio:build                                   # builds packages/web/dis
 npm run studio:start -- --project fixtures/combat-game  # open the printed /auth?token=… URL
 ```
 
-## Desktop (Electron)
-
-```sh
-npm run start -w @mindmeld/desktop        # builds dist/main.mjs and launches; runs the backend in-process
-npm run package -w @mindmeld/desktop      # installers into packages/desktop/release (build the web UI first)
-```
-
-The app reads your login-shell `PATH` so it finds `claude`/`codex`/`agy`/`pi` even when launched from a dock.
-Help → Usage… shows totals, 5h/7d windows and plan limits with a Copy button; File → Export Usage writes JSONL.
-If Electron's binary is missing after `npm install` (npm's install-script policy), run `node node_modules/electron/install.js`.
-
-## VS Code extension
-
-```sh
-(cd packages/vscode && npm run package)                       # → packages/vscode/mindmeld-studio-0.1.0.vsix
-code --install-extension packages/vscode/mindmeld-studio-0.1.0.vsix
-```
-
-The extension starts its own backend inside VS Code (setting `mindmeld.backend`, default `embedded`; evidence is kept
-in the extension's global storage), so no server or login URL is needed: run Import Current Workspace,
-Allowlist Function at Cursor, Run Entry, Ask Question, Show Usage. The status bar shows 5h tokens and plan usage.
-In a WSL or remote window, install the extension on the remote side so its backend can read the workspace.
-To use a separately started server instead, set `mindmeld.backend` to `external`, reload, then **Mind Meld: Connect**
-and paste the printed login URL.
-
 ## Container
 
 See `infra/compose/compose.yml`. A container cannot use your host's CLI login, so Q&A is off there; run natively
@@ -90,6 +65,5 @@ for Q&A.
 
 ## npm install-script policy
 
-npm reports that `esbuild`, `electron-winstaller` and `@vscode/vsce-sign` have install scripts not covered by
-`allowScripts`. Builds and tests pass without running them here; approving them (`npm install-scripts approve <pkg>`)
+npm reports that `esbuild` has an install script not covered by `allowScripts`. Builds and tests pass without running them here; approving them (`npm install-scripts approve <pkg>`)
 is an owner decision.

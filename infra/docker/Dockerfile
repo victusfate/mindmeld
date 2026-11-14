@@ -13,7 +13,7 @@ FROM ${NODE_IMAGE} AS build
 WORKDIR /src
 COPY package.json package-lock.json .npmrc ./
 COPY packages ./packages
-# --ignore-scripts: no dependency lifecycle scripts (e.g. Electron's binary download) run during the image build.
+# --ignore-scripts: no dependency lifecycle scripts run during the image build.
 RUN --mount=type=secret,id=extra_ca,required=false \
     NODE_EXTRA_CA_CERTS=$([ -f /run/secrets/extra_ca ] && echo /run/secrets/extra_ca) npm ci --ignore-scripts --no-audit --no-fund
 RUN if [ -f packages/web/package.json ]; then npm run build -w @mindmeld/web; else mkdir -p packages/web/dist; fi
@@ -33,7 +33,7 @@ COPY package.json package-lock.json .npmrc ./
 COPY packages ./packages
 RUN --mount=type=secret,id=extra_ca,required=false \
     NODE_EXTRA_CA_CERTS=$([ -f /run/secrets/extra_ca ] && echo /run/secrets/extra_ca) npm ci --omit=dev --ignore-scripts --no-audit --no-fund && npm cache clean --force \
- && rm -rf packages/desktop packages/vscode packages/*/test
+ && rm -rf packages/*/test
 COPY --from=build /src/packages/web/dist ./packages/web/dist
 RUN mkdir -p /data /var/tmp/mindmeld-runs && chown node:node /data /var/tmp/mindmeld-runs
 ENV NODE_ENV=production \

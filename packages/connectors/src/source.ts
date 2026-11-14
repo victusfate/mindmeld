@@ -13,7 +13,7 @@ const CLONE_TIMEOUT_MS = 120_000;
 export class LocalDirectorySource implements SourceConnector {
   readonly kind = 'local';
   private readonly allowedRoots: string[];
-  /** `allowedRoots` empty = any directory the server user can read (desktop/single-user mode). */
+  /** `allowedRoots` empty = any directory the server user can read (single-user mode). */
   constructor(allowedRoots: string[] = []) { this.allowedRoots = allowedRoots.map(r => realpathSync(r)); }
 
   materialize(ref: string): Promise<{ root: string; name: string }> {

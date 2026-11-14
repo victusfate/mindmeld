@@ -20,3 +20,6 @@ extension, record per-language counts in `qa-report.md`.
 
 Revision after slice 9: measuring voidhorizon disproved the name-match assumption (60% of edges were library
 calls name-matched to repo methods), so D6 was revised and slices 4–6 resolution updated (commit `b030941`).
+
+Later (2026-11-14): the desktop app and the VS Code extension were retired, so slices 8 and 9 no longer ship;
+see [`../retire-desktop-vscode/design.md`](../retire-desktop-vscode/design.md).

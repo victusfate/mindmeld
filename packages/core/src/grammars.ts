@@ -1,6 +1,6 @@
 // Tree-sitter grammars for the languages the TypeScript compiler cannot parse. The .wasm files are vendored in
 // ../grammars (see scripts/build-grammars.ts) and verified against their manifest before use, because they are
-// executable code shipped inside the app.
+// executable code loaded at run time.
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -12,9 +12,6 @@ const RUNTIME = 'web-tree-sitter/0.27.2';
 
 export type GrammarLanguage = 'rust' | 'python' | 'gdscript';
 export const GRAMMAR_DIR = fileURLToPath(new URL('../grammars/', import.meta.url));
-/** Where a bundled app (desktop, VS Code) keeps the tree-sitter files relative to its bundle directory. */
-export const BUNDLED_GRAMMAR_SUBDIR = 'grammars';
-export const BUNDLED_RUNTIME_WASM = 'web-tree-sitter.wasm';
 
 interface ManifestEntry { language: GrammarLanguage; file: string; version: string; sha256: string }
 
@@ -25,24 +22,12 @@ export interface Grammars {
   withTree<T>(language: GrammarLanguage, source: string, read: (root: Node) => T): T;
 }
 
-/** Where a bundled app keeps the files that normally sit in node_modules and core/grammars. */
-export interface GrammarFiles {
-  /** Directory holding the grammar .wasm files and manifest.json; defaults to core's vendored copy. */
-  dir?: string;
-  /** web-tree-sitter's runtime .wasm; defaults to the copy beside the web-tree-sitter module. */
-  runtimeWasm?: string;
-}
-
-/** The grammar files beside a bundle that `scripts/grammar-assets.ts` populated. */
-export const bundledGrammarFiles = (bundleDir: string): Required<GrammarFiles> =>
-  ({ dir: join(bundleDir, BUNDLED_GRAMMAR_SUBDIR), runtimeWasm: join(bundleDir, BUNDLED_RUNTIME_WASM) });
-
 let runtimeReady: Promise<void> | null = null;
 
-export async function loadGrammars({ dir = GRAMMAR_DIR, runtimeWasm }: GrammarFiles = {}): Promise<Grammars> {
-  // The runtime is process-wide, so the first successful caller's runtime file wins; a failed start is retried.
-  runtimeReady ??= Parser.init(runtimeWasm ? { wasmBinary: readFileSync(runtimeWasm) } : undefined)
-    .catch((error: unknown) => { runtimeReady = null; throw error; });
+/** `dir` holds the grammar .wasm files and manifest.json; it defaults to core's vendored copy. */
+export async function loadGrammars({ dir = GRAMMAR_DIR }: { dir?: string } = {}): Promise<Grammars> {
+  // The runtime is process-wide, so it starts once; a failed start is retried by the next call.
+  runtimeReady ??= Parser.init().catch((error: unknown) => { runtimeReady = null; throw error; });
   await runtimeReady;
   const manifest = JSON.parse(readFileSync(join(dir, 'manifest.json'), 'utf8')) as ManifestEntry[];
   const parsers = new Map<GrammarLanguage, Parser>();

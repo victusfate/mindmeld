@@ -1,5 +1,8 @@
 # Mind Meld Studio — Initial Design and Implementation Backlog
 
+> **Superseded in part (2026-11-14):** the desktop app and the VS Code extension were retired; Studio is the
+> browser UI only. See [`../retire-desktop-vscode/design.md`](../retire-desktop-vscode/design.md).
+
 **Status:** Draft · 2026-11-10  
 **Repository:** [victusfate/mindmeld](https://github.com/victusfate/mindmeld)  
 **License:** MIT (see repository root `LICENSE`)  

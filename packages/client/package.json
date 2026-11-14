@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Typed HTTP client for the Mind Meld Studio API, shared by the web UI, desktop app and VS Code extension.",
+  "description": "Typed HTTP client for the Mind Meld Studio API, used by the web UI and Node scripts.",
   "exports": {
     ".": "./src/index.ts"
   },

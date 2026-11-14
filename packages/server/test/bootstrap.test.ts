@@ -4,7 +4,7 @@ import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { launch, launchLocal, DEFAULT_WEB_DIR } from '../src/index.ts';
+import { launch, DEFAULT_WEB_DIR } from '../src/index.ts';
 
 test('launch wires store, connectors and server from the environment', async () => {
   const dataDir = mkdtempSync(join(tmpdir(), 'mm-launch-'));
@@ -31,20 +31,4 @@ test('cli --usage prints a shareable report from the data dir', () => {
   assert.match(text.stdout, /no activity recorded yet/);
   const json = spawnSync(process.execPath, [cli, '--usage', '--json', '--data', dataDir], { encoding: 'utf8' });
   assert.equal(json.status, 0, json.stderr);
-});
-
-test('launchLocal: loopback on a random port with a fresh token; close() releases server and store', async () => {
-  const dataDir = mkdtempSync(join(tmpdir(), 'mm-local-'));
-  const shared = { MINDMELD_SANDBOX: 'none', MINDMELD_MODEL_PROVIDER: 'none', MINDMELD_PORT: '8787', MINDMELD_TOKEN: 'shared-server-token-0123456789abcdef' };
-  const backend = await launchLocal({ env: shared, dataDir });
-  try {
-    assert.notEqual(backend.token, shared.MINDMELD_TOKEN, 'never the shared server\'s token');
-    assert.match(backend.url, /^http:\/\/127\.0\.0\.1:\d+$/);
-    assert.notEqual(new URL(backend.url).port, '8787', 'never the shared default port');
-    assert.ok(backend.token.length >= 32);
-    const status = await fetch(`${backend.url}/api/status`, { headers: { authorization: `Bearer ${backend.token}` } });
-    assert.equal(status.status, 200);
-  } finally { await backend.close(); }
-  await assert.rejects(fetch(`${backend.url}/api/health`));
-  assert.throws(() => backend.studio.store.listProjects(), 'store is closed');
 });

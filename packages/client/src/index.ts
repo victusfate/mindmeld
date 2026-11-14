@@ -1,5 +1,5 @@
 // Typed client for the Studio API. Browser callers rely on the HttpOnly session cookie (pass no token);
-// Node callers (VS Code, desktop, scripts) pass the bearer token. Types are imported type-only, so the
+// Node callers (scripts, tests) pass the bearer token. Types are imported type-only, so the
 // browser bundle never pulls in core's Node code.
 import type { UsageRecord, UsageSummary, Answer, CodeSymbol, Entry, FileImport, ObservedEdge, RepoSnapshot, ResolvedCitation, Run, RunDiff, StaticEdge, TraceEvent } from '@mindmeld/core';
 

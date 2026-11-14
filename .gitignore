@@ -1,7 +1,5 @@
 node_modules/
 dist/
-# electron-builder output (packages/desktop)
-release/
 build/
 coverage/
 
@@ -31,6 +29,3 @@ diagrams/
 
 # Subagent git worktrees (Claude Code isolation: worktree); local only, never committed.
 .claude/worktrees/
-
-# VS Code extension packages (built by packages/vscode `npm run package`)
-*.vsix
