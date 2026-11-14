@@ -50,6 +50,11 @@ test('cookie login, CSRF guard and security headers', async () => {
   assert.equal((await call('GET', '/auth?token=nope')).status, 401);
   const login = await call('GET', '/auth?token=test-token-123', { headers: { authorization: '' } });
   assert.equal(login.status, 303);
+  assert.equal(login.headers.location, '/');
+  const toProject = await call('GET', '/auth?token=test-token-123&project=prj_0123456789abcdef', { headers: { authorization: '' } });
+  assert.equal(toProject.headers.location, '/?project=prj_0123456789abcdef', 'the login redirect opens the chosen project');
+  const offsite = await call('GET', '/auth?token=test-token-123&project=%2F%2Fevil.example', { headers: { authorization: '' } });
+  assert.equal(offsite.headers.location, '/', 'anything but a project id is dropped');
   const cookie = String(login.headers['set-cookie']);
   assert.match(cookie, /HttpOnly; SameSite=Strict/);
   const jar = { authorization: '', cookie: cookie.split(';')[0] };

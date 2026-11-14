@@ -28,10 +28,11 @@ Needs Node 26 (see `.node-version`; Node 23.6 or newer works).
 ```sh
 npm install
 npm run studio:build
-npm run studio:start -- --project fixtures/combat-game
+npx mindmeld fixtures/combat-game      # or any repo: npx mindmeld /path/to/repo
 ```
 
-Open the printed `http://127.0.0.1:8787/auth?token=…` URL. To run code you also need Docker or Podman and a local copy of the sandbox image (`docker pull node:26-alpine`). Without it, everything except Run still works.
+It imports the repo and opens it in your browser. Running it again on the same repo refreshes that import instead
+of adding a copy. To use `mindmeld` from any directory, run `npm link -w @mindmeld/server` once. To run code you also need Docker or Podman and a local copy of the sandbox image (`docker pull node:26-alpine`). Without it, everything except Run still works.
 
 The full walkthrough, with configuration, the container image and usage export, is in [`docs/mind-meld-studio/quickstart.md`](docs/mind-meld-studio/quickstart.md).
 
