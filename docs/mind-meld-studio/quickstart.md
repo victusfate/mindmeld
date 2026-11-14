@@ -33,6 +33,7 @@ narrow a large repo with `--include DIR` (repeatable, repo-relative) or `include
 | `MINDMELD_SANDBOX` | `docker` | `docker` · `podman` · `none` |
 | `MINDMELD_SANDBOX_IMAGE` | `node:26-alpine` | local image used for runs |
 | `MINDMELD_ALLOWED_ROOTS` | (any) | comma-separated directories projects may be imported from |
+| `MINDMELD_EDITOR` | `vscode` | where the source panel's **Open in …** link goes: `vscode` · `vscode-insiders` · `cursor` · `windsurf` · `none`. In WSL the link opens the file through the editor's WSL remote. Only local projects link. |
 | `MINDMELD_PORT` / `MINDMELD_TOKEN` / `MINDMELD_DATA_DIR` | 8787 / random / `~/.mindmeld` | |
 
 Try it on the bundled fixture: `npm run studio:start -- --project fixtures/combat-game`, allowlist

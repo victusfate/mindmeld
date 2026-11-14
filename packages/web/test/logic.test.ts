@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import type { Answer, CodeSymbol, ObservedEdge, ResolvedCitation, RunDiff, StaticEdge, TraceEvent } from '../../client/src/index.ts';
+import type { Answer, CodeSymbol, Project, ObservedEdge, ResolvedCitation, RunDiff, StaticEdge, TraceEvent } from '../../client/src/index.ts';
 import { fileSlots, initialFile, layers, layoutSymbols, ROW_HEIGHT, LARGE_MAP } from '../src/lib/layout.ts';
 import { mapEdges, edgeKey } from '../src/lib/edges.ts';
 import { callStack, clampStep, pathUpTo } from '../src/lib/replay.ts';
@@ -8,6 +8,7 @@ import { checkInputs, inputTemplate } from '../src/lib/inputs.ts';
 import { answerView, citationTone, parseEventRef, resolvedIndex, segments } from '../src/lib/answer.ts';
 import { compareRows, shortSymbol } from '../src/lib/diff.ts';
 import { duration, pretty, shortHash } from '../src/lib/format.ts';
+import { editorLink } from '../src/lib/editor.ts';
 
 const sym = (id: string, line = 1): CodeSymbol => ({
   id, name: shortSymbol(id), kind: 'function', exported: true, async: false, params: [],
@@ -128,4 +129,18 @@ test('a large project opens the map on its first file; a small one shows everyth
   assert.equal(initialFile(['b.rs', 'a.py'], LARGE_MAP), '');
   assert.equal(initialFile(['a.py', 'b.rs'], LARGE_MAP + 1), 'a.py');
   assert.equal(initialFile([], LARGE_MAP + 1), '');
+});
+
+test('editorLink links local files into VS Code, through WSL, on Windows paths, and never for git clones or UNC', () => {
+  const local = (root: string): Project => ({ id: 'prj_1', name: 'r', sourceKind: 'local', sourceRef: root, root, createdAt: '' });
+  const vscode = { scheme: 'vscode', remote: null };
+  const href = (...a: Parameters<typeof editorLink>): string | undefined => editorLink(...a)?.href;
+  assert.deepEqual(editorLink(vscode, local('/home/me/repo'), 'src/a.ts', 12), { href: 'vscode://file/home/me/repo/src/a.ts:12', label: 'Open in VS Code' });
+  assert.equal(href({ scheme: 'cursor', remote: 'wsl+Ubuntu' }, local('/home/me/repo/'), 'src/a.ts', 3), 'cursor://vscode-remote/wsl+Ubuntu/home/me/repo/src/a.ts:3');
+  assert.equal(href(vscode, local('C:\\work\\repo'), 'src/a.ts', 1), 'vscode://file/C:/work/repo/src/a.ts:1');
+  assert.equal(href(vscode, local('/r'), 'my dir/#1.ts', 1), 'vscode://file/r/my%20dir/%231.ts:1');
+  assert.equal(editorLink(vscode, { ...local('/cache/x'), sourceKind: 'git' }, 'a.ts', 1), null);
+  assert.equal(editorLink(vscode, local('\\\\srv\\share\\repo'), 'a.ts', 1), null);
+  assert.equal(editorLink(null, local('/r'), 'a.ts', 1), null);
+  assert.equal(editorLink({ scheme: 'cursor', remote: null }, local('/r'), 'a.ts', 1)?.label, 'Open in Cursor');
 });

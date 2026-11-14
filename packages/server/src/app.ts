@@ -5,6 +5,7 @@ import { existsSync, readFileSync, statSync } from 'node:fs';
 import { extname, join, normalize, sep } from 'node:path';
 import { ModelUnavailableError, NotFoundError, SandboxUnavailableError, TraceRejectedError, ValidationError, type Studio } from '@mindmeld/core';
 import { checkRequest, COOKIE, HTTP, sameToken, securityHeaders, type Policy } from './security.ts';
+import type { EditorLink } from './editor.ts';
 
 export const API_VERSION = 1;
 /**
@@ -20,7 +21,7 @@ export const API_ROUTES = [
 ] as const;
 /** Routes served by the JSON dispatch table (the first three above are handled before dispatch). */
 export function dispatchedRoutes(studio: Studio): string[] {
-  return routes(studio).map(r => `${r.method} ${r.path}`);
+  return routes(studio, null).map(r => `${r.method} ${r.path}`);
 }
 const MAX_BODY = 2_000_000;
 const MAX_BUNDLE_BODY = 60_000_000;
@@ -36,6 +37,8 @@ export interface ServerOptions {
   webDir?: string;
   /** Extra Host header values, e.g. a container's published name. Loopback names are always allowed. */
   extraHosts?: string[];
+  /** Reported in /api/status so the browser can link source spans into the editor; null or absent: no links. */
+  editor?: EditorLink | null;
 }
 export interface RunningServer { server: Server; url: string; token: string; close(): Promise<void> }
 
@@ -84,9 +87,9 @@ function stringList(body: unknown, key: string): string[] | undefined {
   return v;
 }
 
-function routes(studio: Studio): Route[] {
+function routes(studio: Studio, editor: EditorLink | null): Route[] {
   return [
-    route('GET', '/api/status', async () => ({ apiVersion: API_VERSION, ...(await studio.status()) })),
+    route('GET', '/api/status', async () => ({ apiVersion: API_VERSION, ...(await studio.status()), editor })),
     route('GET', '/api/projects', () => studio.store.listProjects()),
     route('POST', '/api/projects', async ({ body }) => {
       const b = await body();
@@ -194,7 +197,7 @@ async function dispatch(req: IncomingMessage, res: ServerResponse, table: Route[
 export function startServer(options: ServerOptions): Promise<RunningServer> {
   const host = options.host ?? '127.0.0.1';
   const token = options.token ?? randomBytes(TOKEN_BYTES).toString('base64url');
-  const table = routes(options.studio);
+  const table = routes(options.studio, options.editor ?? null);
   const policy: Policy = { token, allowedHosts: new Set(), allowedOrigins: new Set() };
   const handle = ({ req, res, url, isApi }: { req: IncomingMessage; res: ServerResponse; url: URL; isApi: boolean }): void => {
     if (url.pathname === '/api/health') { send(res, HTTP.ok, { ok: true, apiVersion: API_VERSION }); return; }

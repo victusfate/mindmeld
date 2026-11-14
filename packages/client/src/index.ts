@@ -13,7 +13,11 @@ export interface Status {
   apiVersion: number; indexer: string;
   sandbox: { name: string; available: boolean; reason: string; runtime: string | null };
   model: { name: string | null; available: boolean; reason: string; model: string | null };
+  /** Absent from older backends. */
+  editor?: EditorLink | null;
 }
+/** How to link a source span into the user's editor (scheme, and the VS Code remote authority for WSL). */
+export interface EditorLink { scheme: string; remote: string | null }
 export interface SourceFileContent { path: string; hash: string; language: string; content: string }
 export interface RunResult { run: Run; events: TraceEvent[] }
 

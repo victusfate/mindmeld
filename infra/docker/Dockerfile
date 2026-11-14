@@ -37,6 +37,7 @@ RUN --mount=type=secret,id=extra_ca,required=false \
 COPY --from=build /src/packages/web/dist ./packages/web/dist
 RUN mkdir -p /data /var/tmp/mindmeld-runs && chown node:node /data /var/tmp/mindmeld-runs
 ENV NODE_ENV=production \
+    MINDMELD_EDITOR=none \
     MINDMELD_HOST=0.0.0.0 \
     MINDMELD_PORT=8787 \
     MINDMELD_DATA_DIR=/data \

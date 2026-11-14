@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { EvidenceStore, loadGrammars, Studio } from '@mindmeld/core';
 import { connectorsFromEnv } from '@mindmeld/connectors';
 import { startServer, type RunningServer } from './app.ts';
+import { editorFromEnv } from './editor.ts';
 
 export const DEFAULT_WEB_DIR = fileURLToPath(new URL('../../web/dist', import.meta.url));
 
@@ -26,7 +27,7 @@ export async function launch(o: LaunchOptions = {}): Promise<{ studio: Studio; r
   const running = await startServer({
     studio, host: o.host ?? env.MINDMELD_HOST, port: o.port ?? envPort(env),
     token: o.token ?? env.MINDMELD_TOKEN, webDir: env.MINDMELD_WEB_DIR ?? DEFAULT_WEB_DIR,
-    extraHosts: hostList(env.MINDMELD_ALLOWED_HOSTS),
+    extraHosts: hostList(env.MINDMELD_ALLOWED_HOSTS), editor: editorFromEnv(env),
   });
   return { studio, running, notes: connectors.notes };
 }
