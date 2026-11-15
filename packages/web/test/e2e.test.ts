@@ -29,7 +29,7 @@ test('studio UI: import, map, allowlist, run, replay, compare, ask, usage, avail
   const sandbox = new HostProcessSandbox();
   const model = new ScriptedModel(() => 'playTurn attacks and then saves the defender [S:src/game.ts#playTurn]. It also emails the player [S:src/mail.ts#send].');
   const studio = new Studio({ store: new EvidenceStore(':memory:'), sandbox, model, sources: [new LocalDirectorySource()] });
-  const srv = await startServer({ studio, webDir, token: 'e2e-token-0123456789' });
+  const srv = await startServer({ studio, webDir, token: 'e2e-token-0123456789', editor: { scheme: 'vscode', remote: 'wsl+Ubuntu' } });
   const browser = await pw!.chromium.launch();
   after(async () => { await browser.close(); await srv.close(); });
   const page = await browser.newPage({ viewport: { width: 1440, height: 900 }, deviceScaleFactor: 1 });
@@ -51,6 +51,8 @@ test('studio UI: import, map, allowlist, run, replay, compare, ask, usage, avail
   await shot('map');
 
   await page.locator('[data-symbol="src/game.ts#playTurn"]').click();
+  const open = page.getByRole('link', { name: 'Open in VS Code' });
+  assert.match(await open.getAttribute('href') ?? '', /^vscode:\/\/vscode-remote\/wsl\+Ubuntu\/.+\/src\/game\.ts:\d+$/, 'source links into the WSL editor');
   await page.getByRole('button', { name: 'Allowlist as entry' }).click();
   await page.getByText('allowlisted entry', { exact: true }).waitFor(WAIT);
 

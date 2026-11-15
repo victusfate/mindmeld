@@ -34,7 +34,7 @@ test('v1 route table is frozen', () => {
 test('v1 response shapes', async () => {
   hasAll((await call('GET', '/api/health')).json, ['ok', 'apiVersion']);
   const status = (await call('GET', '/api/status')).json;
-  hasAll(status, ['apiVersion', 'sandbox', 'model', 'indexer']);
+  hasAll(status, ['apiVersion', 'sandbox', 'model', 'indexer', 'editor']);
   hasAll(status.model, ['name', 'available', 'reason', 'model']);
   const { project, snapshot } = (await call('POST', '/api/projects', { kind: 'local', ref: copyFixture() })).json;
   hasAll(project, ['id', 'name', 'sourceKind', 'sourceRef', 'root', 'createdAt']);

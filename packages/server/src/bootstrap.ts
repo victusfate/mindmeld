@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { EvidenceStore, loadGrammars, Studio } from '@mindmeld/core';
 import { connectorsFromEnv } from '@mindmeld/connectors';
 import { startServer, type RunningServer, type ServerOptions } from './app.ts';
+import { editorFromEnv } from './editor.ts';
 
 export const DEFAULT_WEB_DIR = fileURLToPath(new URL('../../web/dist', import.meta.url));
 
@@ -48,12 +49,13 @@ export async function openStudio(o: Pick<LaunchOptions, 'env' | 'dataDir'> = {})
 
 export async function launch(o: LaunchOptions = {}): Promise<{ studio: Studio; running: RunningServer; notes: string[] }> {
   const env = o.env ?? process.env;
+  const editor = editorFromEnv(env);   // a bad MINDMELD_EDITOR fails before the store opens
   const { studio, notes } = await openStudio(o);
   const port = askedPort(o, env);
   const running = await listen({
     studio, host: o.host ?? env.MINDMELD_HOST, port: port ?? DEFAULT_PORT,
     token: o.token ?? env.MINDMELD_TOKEN, webDir: env.MINDMELD_WEB_DIR ?? DEFAULT_WEB_DIR,
-    extraHosts: hostList(env.MINDMELD_ALLOWED_HOSTS),
+    extraHosts: hostList(env.MINDMELD_ALLOWED_HOSTS), editor,
   }, Boolean(o.portFallback) && port === undefined, notes).catch((error: unknown) => { studio.store.close(); throw error; });
   return { studio, running, notes };
 }

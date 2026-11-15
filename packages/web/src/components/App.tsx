@@ -64,7 +64,7 @@ export function App() {
               path={path} onSelect={selectSymbol} />
           ) : <EmptyState hasProjects={projects.length > 0} />}
         </section>
-        <Inspector tab={tab} onTab={setTab} projectId={projectId} data={data} status={status} selected={selected} onSelect={selectSymbol}
+        <Inspector tab={tab} onTab={setTab} projectId={projectId} project={project} data={data} status={status} selected={selected} onSelect={selectSymbol}
           replayRun={replayRun} step={step} onReplay={openEvent} usage={usage} onChanged={changed} report={report} />
       </main>
       <Notice message={notice} onDismiss={() => setNotice(null)} />

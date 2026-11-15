@@ -1,13 +1,17 @@
 // Source pane: the selected symbol's file with line numbers, its span highlighted, the file hash, static
 // callers/callees, and "Allowlist as entry" for exported functions.
 import { useEffect, useRef, useState } from 'react';
-import type { CodeSymbol, SourceFileContent } from '@mindmeld/client';
+import type { CodeSymbol, EditorLink, Project, SourceFileContent } from '@mindmeld/client';
 import { api } from '../../api.ts';
 import type { ProjectData, Report } from '../../hooks.ts';
 import { errorMessage, shortHash } from '../../lib/format.ts';
 import { shortSymbol } from '../../lib/diff.ts';
+import { editorLink, type SpanLink } from '../../lib/editor.ts';
 
-interface Props { projectId: string; data: ProjectData; selected: string | null; onSelect: (id: string) => void; report: Report }
+interface Props {
+  projectId: string; project: Project | null; editor: EditorLink | null;
+  data: ProjectData; selected: string | null; onSelect: (id: string) => void; report: Report;
+}
 
 const RUNNABLE = new Set(['function', 'variable-function']);
 
@@ -58,7 +62,18 @@ function Code({ src, symbol }: { src: SourceFileContent; symbol: CodeSymbol }) {
   );
 }
 
-export function SourcePanel({ projectId, data, selected, onSelect, report }: Props) {
+/** The span, file hash, and a link that opens the span in the user's editor when the backend configured one. */
+function Meta({ symbol, src, link }: { symbol: CodeSymbol; src: SourceFileContent | null; link: SpanLink | null }) {
+  return (
+    <p className="meta">
+      <span className="mono">{symbol.span.file}:{symbol.span.startLine}-{symbol.span.endLine}</span>
+      {src && <span className="mono" title={src.hash}>hash {shortHash(src.hash)}</span>}
+      {link && <a href={link.href}>{link.label}</a>}
+    </p>
+  );
+}
+
+export function SourcePanel({ projectId, project, editor, data, selected, onSelect, report }: Props) {
   const symbol = data.graph?.symbols.find(s => s.id === selected) ?? null;
   const src = useSource(projectId, symbol?.span.file ?? null, report);
   if (!symbol) return <p className="muted">Select a symbol on the map (click, or Tab and Enter) to read its source.</p>;
@@ -68,10 +83,7 @@ export function SourcePanel({ projectId, data, selected, onSelect, report }: Pro
         <h2>{symbol.name} <span className="muted small">{symbol.kind}{symbol.async ? ' · async' : ''}</span></h2>
         <Allowlist projectId={projectId} symbol={symbol} data={data} report={report} />
       </div>
-      <p className="meta">
-        <span className="mono">{symbol.span.file}:{symbol.span.startLine}-{symbol.span.endLine}</span>
-        {src && <span className="mono" title={src.hash}>hash {shortHash(src.hash)}</span>}
-      </p>
+      <Meta symbol={symbol} src={src} link={editorLink(editor, project, symbol.span.file, symbol.span.startLine)} />
       <Relations data={data} symbol={symbol} onSelect={onSelect} />
       {src ? <Code src={src} symbol={symbol} /> : <p className="muted">Loading source…</p>}
     </div>

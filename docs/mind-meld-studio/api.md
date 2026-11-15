@@ -21,7 +21,7 @@ Types: `packages/core/src/schema.ts`, `usage.ts`, `diff.ts`. Typed client: `pack
 | --- | --- | --- |
 | `GET /api/health` (public) | — | `{ ok, apiVersion }` |
 | `GET /auth?token=` | — | 303 + session cookie |
-| `GET /api/status` | — | `{ apiVersion, indexer, sandbox{name,available,reason,runtime}, model{name,available,reason,model} }` |
+| `GET /api/status` | — | `{ apiVersion, indexer, sandbox{name,available,reason,runtime}, model{name,available,reason,model}, editor }`; `editor` (added, optional for clients) is `{ scheme, remote }` or `null` — see quickstart |
 | `GET /api/projects` | — | `Project[]` |
 | `POST /api/projects` | `{ kind: 'local'\|'git', ref, name?, include?: string[] }` (`include`: repo-relative directories to import) | `{ project, snapshot }` |
 | `GET /api/projects/:id` | — | `{ project, snapshot }` |

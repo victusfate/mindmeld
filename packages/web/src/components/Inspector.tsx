@@ -1,6 +1,6 @@
 // Inspector: tabbed side panel (source, run, replay, compare, ask, usage). Arrow keys move between tabs.
 import type { KeyboardEvent } from 'react';
-import type { RunResult, Status, UsageSummary } from '@mindmeld/client';
+import type { Project, RunResult, Status, UsageSummary } from '@mindmeld/client';
 import type { ProjectData, Report } from '../hooks.ts';
 import { SourcePanel } from './panels/SourcePanel.tsx';
 import { RunPanel } from './panels/RunPanel.tsx';
@@ -13,7 +13,7 @@ export const TABS = ['source', 'run', 'replay', 'compare', 'ask', 'usage'] as co
 export type Tab = typeof TABS[number];
 
 export interface InspectorProps {
-  tab: Tab; onTab: (t: Tab) => void; projectId: string | null; data: ProjectData; status: Status | null;
+  tab: Tab; onTab: (t: Tab) => void; projectId: string | null; project: Project | null; data: ProjectData; status: Status | null;
   selected: string | null; onSelect: (id: string) => void;
   replayRun: RunResult | null; step: number; onReplay: (runId: string, step: number) => void;
   usage: UsageSummary | null; onChanged: () => void; report: Report;
@@ -39,7 +39,7 @@ function TabList({ tab, onTab }: { tab: Tab; onTab: (t: Tab) => void }) {
 
 function Panel(p: InspectorProps & { projectId: string }) {
   switch (p.tab) {
-    case 'source': return <SourcePanel projectId={p.projectId} data={p.data} selected={p.selected} onSelect={p.onSelect} report={p.report} />;
+    case 'source': return <SourcePanel projectId={p.projectId} project={p.project} editor={p.status?.editor ?? null} data={p.data} selected={p.selected} onSelect={p.onSelect} report={p.report} />;
     case 'run': return <RunPanel projectId={p.projectId} data={p.data} status={p.status} onReplay={p.onReplay} onChanged={p.onChanged} report={p.report} />;
     case 'replay': return <ReplayPanel data={p.data} result={p.replayRun} step={p.step} onReplay={p.onReplay} onSelect={p.onSelect} />;
     case 'compare': return <ComparePanel data={p.data} report={p.report} onSelect={p.onSelect} />;
