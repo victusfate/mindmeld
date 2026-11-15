@@ -1,6 +1,6 @@
 // Usage telemetry: one append-only record per model call, sandbox run and index. Values a provider did not
 // report are null — unknown, never zero (the scaffold's delivery-rigor rule). Records are shared back through
-// answers, the API summary, a JSONL export and `mindmeld-studio --usage`.
+// answers, the API summary, a JSONL export and `mindmeld --usage`.
 export type UsageKind = 'model' | 'run' | 'index';
 
 /** What a model connector could measure about one call. */

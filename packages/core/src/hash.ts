@@ -10,3 +10,5 @@ export function snapshotHashOf(fileHashes: Record<string, string>): string {
 
 const ID_HEX_CHARS = 16;
 export const newId = (prefix: string): string => `${prefix}_${randomUUID().replaceAll('-', '').slice(0, ID_HEX_CHARS)}`;
+/** Matches exactly the ids `newId(prefix)` makes. */
+export const idPattern = (prefix: string): RegExp => new RegExp(`^${prefix}_[0-9a-f]{${ID_HEX_CHARS}}$`);

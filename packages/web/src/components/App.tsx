@@ -32,8 +32,14 @@ export function App() {
   const status = useStatus(report, tick);
   const usage = useUsage(null, tick, report);
   const { projects, reload: reloadProjects } = useProjects(report);
-  const [chosen, setChosen] = useState<string | null>(null);
-  const projectId = chosen ?? projects.at(-1)?.id ?? null;
+  // `mindmeld PATH` opens the browser on /?project=<id> (the /auth redirect) so the repo it imported is shown. The
+  // parameter is read once and cleared, so a reload after choosing another project does not jump back.
+  const [chosen, setChosen] = useState<string | null>(() => {
+    const id = new URLSearchParams(location.search).get('project');
+    if (id) history.replaceState(null, '', '/');
+    return id;
+  });
+  const projectId = projects.find(p => p.id === chosen)?.id ?? projects.at(-1)?.id ?? null;
   const data = useProjectData(projectId, report);
   const [tab, setTab] = useState<Tab>('source');
   const [selected, setSelected] = useState<string | null>(null);

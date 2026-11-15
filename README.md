@@ -4,6 +4,8 @@ Learn an unfamiliar codebase from evidence, not guesses. Point Mind Meld Studio 
 
 - **A source-linked map** of modules, symbols and the calls between them, built from a static index. Nothing is executed or installed to draw it.
 - **Real runs you can replay.** Pick an allowlisted entry point, give it inputs, and Studio runs it in a locked-down container and records what was actually called. Step through the trace or compare two runs side by side.
+- **Tools for your agent.** `mindmeld mcp` gives Claude Code, Codex, Cursor or any MCP client the same index: symbol search, source with static callers and callees, and calls observed in runs.
+- **A code-map page to share.** `mindmeld explorer` writes one self-contained HTML page: modules in lanes, call flows to step through, and suggested questions.
 - **Answers with citations.** Ask a question and a local agent CLI you're already logged into (`claude`, `codex`, `agy` or `pi`) answers from the indexed source and recorded runs. Each sentence cites the code or trace it rests on, and anything it can't support is marked *unknown*.
 
 It runs as a browser app on a local backend you start with one command, so it works alongside any editor.
@@ -28,10 +30,11 @@ Needs Node 26 (see `.node-version`; Node 23.6 or newer works).
 ```sh
 npm install
 npm run studio:build
-npm run studio:start -- --project fixtures/combat-game
+npx mindmeld fixtures/combat-game      # or any repo: npx mindmeld /path/to/repo
 ```
 
-Open the printed `http://127.0.0.1:8787/auth?token=…` URL. To run code you also need Docker or Podman and a local copy of the sandbox image (`docker pull node:26-alpine`). Without it, everything except Run still works.
+It imports the repo and opens it in your browser. Running it again on the same repo refreshes that import instead
+of adding a copy. To use `mindmeld` from any directory, run `npm link -w @mindmeld/server` once. To run code you also need Docker or Podman and a local copy of the sandbox image (`docker pull node:26-alpine`). Without it, everything except Run still works.
 
 The full walkthrough, with configuration, the container image and usage export, is in [`docs/mind-meld-studio/quickstart.md`](docs/mind-meld-studio/quickstart.md).
 
