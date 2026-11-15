@@ -15,10 +15,14 @@ you start with one command.
 ## Backend + browser
 
 ```sh
-npm run studio:start -- --project /path/to/repo      # prints http://127.0.0.1:8787/auth?token=…
+npx mindmeld /path/to/repo        # imports the repo and opens http://127.0.0.1:8787/auth?token=… in your browser
 ```
 
-Open the printed URL (it sets an HttpOnly session cookie). Data lives in `~/.mindmeld` (`--data DIR` to change).
+`mindmeld [PATH…] [--include DIR]… [--port N] [--host H] [--data DIR] [--no-open]`. The printed URL sets an HttpOnly
+session cookie and opens the last PATH. A PATH imported before (same directory and `--include` scope) is refreshed,
+not imported again. Without `--port` or `MINDMELD_PORT`, a busy 8787 falls back to a free port. The browser opens
+only from a terminal; `--no-open` skips it. `npm link -w @mindmeld/server` puts `mindmeld` on your PATH.
+Data lives in `~/.mindmeld` (`--data DIR` to change).
 
 Indexed languages: TypeScript/JavaScript (TypeScript compiler) and Rust, Python and GDScript (tree-sitter grammars
 vendored in `packages/core/grammars`). JSON, Markdown and text files are imported for citations and Q&A only.
@@ -35,7 +39,7 @@ narrow a large repo with `--include DIR` (repeatable, repo-relative) or `include
 | `MINDMELD_ALLOWED_ROOTS` | (any) | comma-separated directories projects may be imported from |
 | `MINDMELD_PORT` / `MINDMELD_TOKEN` / `MINDMELD_DATA_DIR` | 8787 / random / `~/.mindmeld` | |
 
-Try it on the bundled fixture: `npm run studio:start -- --project fixtures/combat-game`, allowlist
+Try it on the bundled fixture: `npx mindmeld fixtures/combat-game`, allowlist
 `src/game.ts#playTurn`, run with `[{"name":"hero","hp":10,"attack":7,"armor":1},{"name":"slime","hp":5,"attack":2,"armor":2}]`,
 then again with `"attack":120` and compare: `legacyCritical` appears only in the second run.
 
@@ -45,8 +49,8 @@ Every index, sandbox run and model call is recorded (duration, success, tokens/c
 unreported values are *unknown*, not zero).
 
 ```sh
-node packages/server/src/cli.ts --usage            # human-readable summary
-node packages/server/src/cli.ts --usage --json     # JSONL, one record per line — attach this when sharing
+npx mindmeld --usage            # human-readable summary
+npx mindmeld --usage --json     # JSONL, one record per line — attach this when sharing
 ```
 
 Also `GET /api/usage` and `GET /api/usage/export` (JSONL), and in the browser's usage panel.
@@ -55,7 +59,7 @@ Also `GET /api/usage` and `GET /api/usage/export` (JSONL), and in the browser's 
 
 ```sh
 npm run studio:build                                   # builds packages/web/dist
-npm run studio:start -- --project fixtures/combat-game  # open the printed /auth?token=… URL
+npx mindmeld fixtures/combat-game                       # opens the browser on the fixture
 ```
 
 ## Container

@@ -3,7 +3,7 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import { randomBytes } from 'node:crypto';
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import { extname, join, normalize, sep } from 'node:path';
-import { ModelUnavailableError, NotFoundError, SandboxUnavailableError, TraceRejectedError, ValidationError, type Studio } from '@mindmeld/core';
+import { idPattern, ModelUnavailableError, NotFoundError, SandboxUnavailableError, TraceRejectedError, ValidationError, type Studio } from '@mindmeld/core';
 import { checkRequest, COOKIE, HTTP, sameToken, securityHeaders, type Policy } from './security.ts';
 
 export const API_VERSION = 1;
@@ -26,6 +26,7 @@ const MAX_BODY = 2_000_000;
 const MAX_BUNDLE_BODY = 60_000_000;
 const TOKEN_BYTES = 24;
 const REQUEST_TIMEOUT_MS = 180_000;
+const PROJECT_ID = idPattern('prj');
 const MIME: Record<string, string> = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml', '.json': 'application/json', '.png': 'image/png', '.woff2': 'font/woff2' };
 
 export interface ServerOptions {
@@ -170,7 +171,9 @@ function login(req: IncomingMessage, res: ServerResponse, url: URL, policy: Poli
   if (!sameToken(url.searchParams.get('token') ?? undefined, policy.token)) { send(res, HTTP.unauthorized, { error: 'invalid token' }); return; }
   res.statusCode = HTTP.seeOther;
   res.setHeader('set-cookie', `${COOKIE}=${policy.token}; HttpOnly; SameSite=Strict; Path=/`);
-  res.setHeader('location', '/');
+  // Only an id-shaped project survives into the redirect, so /auth cannot send the browser anywhere else.
+  const project = url.searchParams.get('project');
+  res.setHeader('location', project && PROJECT_ID.test(project) ? `/?project=${project}` : '/');
   res.end();
 }
 

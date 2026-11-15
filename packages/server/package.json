@@ -8,7 +8,7 @@
     ".": "./src/index.ts"
   },
   "bin": {
-    "mindmeld-studio": "./src/cli.ts"
+    "mindmeld": "./src/cli.ts"
   },
   "scripts": {
     "start": "node src/cli.ts",
