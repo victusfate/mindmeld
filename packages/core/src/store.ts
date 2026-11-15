@@ -102,6 +102,13 @@ export class EvidenceStore {
     return row ? this.getSnapshot(String(row.id)) : null;
   }
 
+  /** Changes whenever the project's latest snapshot or its run count does, without loading either. */
+  evidenceVersion(projectId: string): string {
+    const snap = this.db.prepare('SELECT id FROM snapshots WHERE project_id = ? ORDER BY rowid DESC LIMIT 1').get(projectId) as Row | undefined;
+    const runs = this.db.prepare('SELECT COUNT(*) AS n FROM runs WHERE project_id = ?').get(projectId) as Row;
+    return `${snap ? String(snap.id) : '-'}:${Number(runs.n)}`;
+  }
+
   getSnapshot(id: string): RepoSnapshot {
     const row = this.db.prepare('SELECT * FROM snapshots WHERE id = ?').get(id) as Row | undefined;
     if (!row) throw new NotFoundError(`snapshot ${id} not found`);

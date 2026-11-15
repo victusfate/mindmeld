@@ -43,6 +43,21 @@ Try it on the bundled fixture: `npx mindmeld fixtures/combat-game`, allowlist
 `src/game.ts#playTurn`, run with `[{"name":"hero","hp":10,"attack":7,"armor":1},{"name":"slime","hp":5,"attack":2,"armor":2}]`,
 then again with `"attack":120` and compare: `legacyCritical` appears only in the second run.
 
+## Agents (MCP)
+
+`mindmeld mcp [PATH]` serves one repo's index to an agent over stdio (PATH defaults to the current directory; it
+is imported or refreshed first, in the same data dir as the browser). Tools: `overview`, `find_symbols`, `symbol`
+(source, static callers/callees with how each was resolved, calls seen in runs), `file_symbols`, `refresh`.
+
+```sh
+npm link -w @mindmeld/server                      # once, so agents can start `mindmeld`
+claude mcp add mindmeld -- mindmeld mcp /path/to/repo
+codex mcp add mindmeld -- mindmeld mcp /path/to/repo
+```
+
+Any MCP client works the same way: command `mindmeld`, args `["mcp", "/path/to/repo"]` (Cursor:
+`.cursor/mcp.json`). Without `npm link`, use `node /path/to/mindmeld/packages/server/src/cli.ts mcp /path/to/repo`.
+
 ## Usage tracking (share it back)
 
 Every index, sandbox run and model call is recorded (duration, success, tokens/cache/cost as the CLI reports them;

@@ -4,9 +4,12 @@ import { parseArgs } from 'node:util';
 import type { Project } from '@mindmeld/core';
 
 export const USAGE = `usage: mindmeld [PATH…] [--include DIR]… [--port N] [--host H] [--data DIR] [--no-open]
+       mindmeld mcp [PATH] [--include DIR]… [--data DIR]   MCP server on stdio for agents (PATH defaults to .)
        mindmeld --usage [--json] [--data DIR]`;
 
 export interface CliArgs {
+  /** `serve` starts the browser backend; `mcp` serves one project to an agent over stdio. */
+  command: 'serve' | 'mcp';
   projects: string[];
   include?: string[];
   port?: number;
@@ -32,6 +35,14 @@ const OPTIONS = {
   help: { type: 'boolean', short: 'h', default: false },
 } as const;
 
+/** `mindmeld mcp [PATH]` takes one project, defaulting to the current directory. */
+function commandOf(positionals: string[], aliases: string[]): Pick<CliArgs, 'command' | 'projects'> {
+  if (positionals[0] !== 'mcp') return { command: 'serve', projects: [...positionals, ...aliases] };
+  const projects = [...positionals.slice(1), ...aliases];
+  if (projects.length > 1) throw new CliUsageError('mcp serves one project; pass at most one PATH');
+  return { command: 'mcp', projects: projects.length ? projects : ['.'] };
+}
+
 /** `--project PATH` is kept as an alias for a positional PATH. */
 export function parseCli(argv: string[]): CliArgs {
   let parsed;
@@ -42,7 +53,7 @@ export function parseCli(argv: string[]): CliArgs {
   const port = v.port === undefined ? undefined : Number(v.port);
   if (port !== undefined && !Number.isInteger(port)) throw new CliUsageError(`--port must be a number, got ${v.port}`);
   return {
-    projects: [...positionals, ...(v.project ?? [])], include: v.include?.length ? v.include : undefined,
+    ...commandOf(positionals, v.project ?? []), include: v.include?.length ? v.include : undefined,
     port, host: v.host, data: v.data, open: v.open, usage: v.usage, json: v.json, help: v.help,
   };
 }
