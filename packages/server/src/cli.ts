@@ -67,11 +67,22 @@ async function serveMcp(a: CliArgs, root: string): Promise<void> {
   studio.store.close();
 }
 
+async function exportExplorer(a: CliArgs, root: string): Promise<void> {
+  const { studio, notes } = await openStudio({ dataDir: a.data });
+  for (const note of notes) console.log(`note: ${note}`);
+  const projectId = await importRoot(studio, root, a.include, text => console.log(text));
+  // Loaded on demand: the renderer lives in the checkout's scripts/, which the container image does not ship.
+  const { writeExplorer } = await import('./explorer-files.ts').catch(() => fail('explorer needs a source checkout (scripts/explorer-render.ts)'));
+  for (const path of writeExplorer(studio.graph(projectId), a.out ?? '.')) console.log(`wrote ${path}`);
+  studio.store.close();
+}
+
 const a = args();
 if (a.help) { console.log(USAGE); process.exit(0); }
 if (a.usage) { printUsage(a); process.exit(0); }
 const roots = repoRoots(a.projects);
 if (a.command === 'mcp') { await serveMcp(a, roots[0]); process.exit(0); }
+if (a.command === 'explorer') { await exportExplorer(a, roots[0]); process.exit(0); }
 const { studio, running, notes } = await launch({ port: a.port, host: a.host, dataDir: a.data, portFallback: true });
 let last: string | null = null;
 for (const root of roots) last = await importRoot(studio, root, a.include, text => console.log(text));

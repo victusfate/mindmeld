@@ -5,16 +5,19 @@ import type { Project } from '@mindmeld/core';
 
 export const USAGE = `usage: mindmeld [PATH…] [--include DIR]… [--port N] [--host H] [--data DIR] [--no-open]
        mindmeld mcp [PATH] [--include DIR]… [--data DIR]   MCP server on stdio for agents (PATH defaults to .)
+       mindmeld explorer [PATH] [--out DIR] [--include DIR]… [--data DIR]   write a standalone code-map page
        mindmeld --usage [--json] [--data DIR]`;
 
 export interface CliArgs {
-  /** `serve` starts the browser backend; `mcp` serves one project to an agent over stdio. */
-  command: 'serve' | 'mcp';
+  /** `serve` starts the browser backend; `mcp` serves one project to an agent over stdio; `explorer` writes a page. */
+  command: 'serve' | 'mcp' | 'explorer';
   projects: string[];
   include?: string[];
   port?: number;
   host?: string;
   data?: string;
+  /** Where `explorer` writes its files (default: the current directory). */
+  out?: string;
   open: boolean;
   usage: boolean;
   json: boolean;
@@ -27,6 +30,7 @@ const OPTIONS = {
   port: { type: 'string' },
   host: { type: 'string' },
   data: { type: 'string' },
+  out: { type: 'string' },
   project: { type: 'string', multiple: true },
   include: { type: 'string', multiple: true },
   open: { type: 'boolean', default: true },
@@ -35,12 +39,15 @@ const OPTIONS = {
   help: { type: 'boolean', short: 'h', default: false },
 } as const;
 
-/** `mindmeld mcp [PATH]` takes one project, defaulting to the current directory. */
+const SINGLE_PROJECT = ['mcp', 'explorer'] as const;
+
+/** `mindmeld mcp|explorer [PATH]` take one project, defaulting to the current directory. */
 function commandOf(positionals: string[], aliases: string[]): Pick<CliArgs, 'command' | 'projects'> {
-  if (positionals[0] !== 'mcp') return { command: 'serve', projects: [...positionals, ...aliases] };
+  const command = SINGLE_PROJECT.find(c => c === positionals[0]);
+  if (!command) return { command: 'serve', projects: [...positionals, ...aliases] };
   const projects = [...positionals.slice(1), ...aliases];
-  if (projects.length > 1) throw new CliUsageError('mcp serves one project; pass at most one PATH');
-  return { command: 'mcp', projects: projects.length ? projects : ['.'] };
+  if (projects.length > 1) throw new CliUsageError(`${command} takes one project; pass at most one PATH`);
+  return { command, projects: projects.length ? projects : ['.'] };
 }
 
 /** `--project PATH` is kept as an alias for a positional PATH. */
@@ -54,7 +61,7 @@ export function parseCli(argv: string[]): CliArgs {
   if (port !== undefined && !Number.isInteger(port)) throw new CliUsageError(`--port must be a number, got ${v.port}`);
   return {
     ...commandOf(positionals, v.project ?? []), include: v.include?.length ? v.include : undefined,
-    port, host: v.host, data: v.data, open: v.open, usage: v.usage, json: v.json, help: v.help,
+    port, host: v.host, data: v.data, out: v.out, open: v.open, usage: v.usage, json: v.json, help: v.help,
   };
 }
 
